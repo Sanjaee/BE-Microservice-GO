@@ -204,6 +204,7 @@ func setupRoutes() *gin.Engine {
 			public.POST("/verify-otp", userHandler.VerifyOTP)
 			public.POST("/resend-otp", userHandler.ResendOTP)
 			public.POST("/refresh-token", userHandler.RefreshToken)
+			public.POST("/google-oauth", userHandler.GoogleOAuth)
 		}
 
 		// Protected routes (authentication required)

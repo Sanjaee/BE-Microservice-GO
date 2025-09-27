@@ -411,3 +411,65 @@ func (uh *UserHandler) RefreshToken(c *gin.Context) {
 
 	c.JSON(http.StatusOK, authResponse)
 }
+
+// GoogleOAuth handles Google OAuth user creation/update
+func (uh *UserHandler) GoogleOAuth(c *gin.Context) {
+	var req struct {
+		Email     string `json:"email" validate:"required,email"`
+		Username  string `json:"username" validate:"required,min=3,max=100"`
+		ImageUrl  string `json:"image_url"`
+		GoogleID  string `json:"google_id" validate:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Validate request
+	if err := uh.validator.Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if user already exists by email
+	var user models.User
+	err := uh.db.Where("email = ?", req.Email).First(&user).Error
+	
+	if err == gorm.ErrRecordNotFound {
+		// Create new user
+		user = models.User{
+			Username:   req.Username,
+			Email:      req.Email,
+			ImageUrl:   &req.ImageUrl,
+			IsVerified: true, // Google users are automatically verified
+		}
+		
+		if err := uh.db.Create(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	} else {
+		// Update existing user with Google info
+		user.ImageUrl = &req.ImageUrl
+		user.IsVerified = true // Ensure Google users are verified
+		user.UpdatedAt = time.Now()
+		
+		if err := uh.db.Save(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+			return
+		}
+	}
+
+	// Generate tokens
+	authResponse, err := uh.JWTService.GenerateTokens(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
+		return
+	}
+
+	c.JSON(http.StatusOK, authResponse)
+}

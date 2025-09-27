@@ -14,6 +14,7 @@ type User struct {
 	Email        string    `json:"email" gorm:"uniqueIndex;not null;size:150" validate:"required,email"`
 	PasswordHash string    `json:"-" gorm:"not null"` // Hidden from JSON
 	OTPCode      *string   `json:"-" gorm:"size:6"`   // Hidden from JSON
+	ImageUrl     *string   `json:"image_url" gorm:"size:500"` // Profile image URL from OAuth providers
 	IsVerified   bool      `json:"is_verified" gorm:"default:false"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -43,6 +44,7 @@ type UserResponse struct {
 	ID         uuid.UUID `json:"id"`
 	Username   string    `json:"username"`
 	Email      string    `json:"email"`
+	ImageUrl   *string   `json:"image_url"`
 	IsVerified bool      `json:"is_verified"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -69,6 +71,7 @@ func (u *User) ToResponse() UserResponse {
 		ID:         u.ID,
 		Username:   u.Username,
 		Email:      u.Email,
+		ImageUrl:   u.ImageUrl,
 		IsVerified: u.IsVerified,
 		CreatedAt:  u.CreatedAt,
 	}
