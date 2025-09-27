@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -104,8 +105,14 @@ func proxyToUserService(method, path string) gin.HandlerFunc {
 			bodyBytes, _ = io.ReadAll(c.Request.Body)
 		}
 
+		// Replace URL parameters with actual values
+		actualPath := path
+		for _, param := range c.Params {
+			actualPath = strings.Replace(actualPath, ":"+param.Key, param.Value, -1)
+		}
+
 		// Create new request to user service
-		url := UserServiceURL + path
+		url := UserServiceURL + actualPath
 		req, err := http.NewRequest(method, url, bytes.NewBuffer(bodyBytes))
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Failed to create request"})
@@ -156,8 +163,14 @@ func proxyToProductService(method, path string) gin.HandlerFunc {
 			bodyBytes, _ = io.ReadAll(c.Request.Body)
 		}
 
+		// Replace URL parameters with actual values
+		actualPath := path
+		for _, param := range c.Params {
+			actualPath = strings.Replace(actualPath, ":"+param.Key, param.Value, -1)
+		}
+
 		// Create new request to product service
-		url := ProductServiceURL + path
+		url := ProductServiceURL + actualPath
 		req, err := http.NewRequest(method, url, bytes.NewBuffer(bodyBytes))
 		if err != nil {
 			c.JSON(500, gin.H{"error": "Failed to create request"})
