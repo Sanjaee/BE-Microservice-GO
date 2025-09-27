@@ -270,6 +270,8 @@ CREATE TABLE users (
     email VARCHAR(150) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     otp_code VARCHAR(6),
+    image_url VARCHAR(500),
+    type VARCHAR(20) NOT NULL DEFAULT 'credential' CHECK (type IN ('credential', 'google')),
     is_verified BOOLEAN DEFAULT false,
     created_at TIMESTAMP DEFAULT now(),
     updated_at TIMESTAMP DEFAULT now()

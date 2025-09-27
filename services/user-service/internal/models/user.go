@@ -15,6 +15,7 @@ type User struct {
 	PasswordHash string    `json:"-" gorm:"not null"` // Hidden from JSON
 	OTPCode      *string   `json:"-" gorm:"size:6"`   // Hidden from JSON
 	ImageUrl     *string   `json:"image_url" gorm:"size:500"` // Profile image URL from OAuth providers
+	Type         string    `json:"type" gorm:"not null;default:'credential'" validate:"required,oneof=credential google"` // Login type: credential or google
 	IsVerified   bool      `json:"is_verified" gorm:"default:false"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -45,6 +46,7 @@ type UserResponse struct {
 	Username   string    `json:"username"`
 	Email      string    `json:"email"`
 	ImageUrl   *string   `json:"image_url"`
+	Type       string    `json:"type"`
 	IsVerified bool      `json:"is_verified"`
 	CreatedAt  time.Time `json:"created_at"`
 }
@@ -72,6 +74,7 @@ func (u *User) ToResponse() UserResponse {
 		Username:   u.Username,
 		Email:      u.Email,
 		ImageUrl:   u.ImageUrl,
+		Type:       u.Type,
 		IsVerified: u.IsVerified,
 		CreatedAt:  u.CreatedAt,
 	}

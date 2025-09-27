@@ -89,6 +89,7 @@ func (uh *UserHandler) Register(c *gin.Context) {
 		Email:        req.Email,
 		PasswordHash: hashedPassword,
 		OTPCode:      &otp,
+		Type:         "credential",
 		IsVerified:   false,
 	}
 
@@ -139,6 +140,12 @@ func (uh *UserHandler) Login(c *gin.Context) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	// Check if user type is credential (not Google OAuth user)
+	if user.Type != "credential" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "This account was created with Google. Please use Google sign-in instead."})
 		return
 	}
 
@@ -442,6 +449,7 @@ func (uh *UserHandler) GoogleOAuth(c *gin.Context) {
 			Username:   req.Username,
 			Email:      req.Email,
 			ImageUrl:   &req.ImageUrl,
+			Type:       "google",
 			IsVerified: true, // Google users are automatically verified
 		}
 		
@@ -453,7 +461,13 @@ func (uh *UserHandler) GoogleOAuth(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	} else {
-		// Update existing user with Google info
+		// Check if existing user is credential type
+		if user.Type == "credential" {
+			c.JSON(http.StatusConflict, gin.H{"error": "This email is already registered with credentials. Please use email/password login instead."})
+			return
+		}
+		
+		// Update existing Google user with new info
 		user.ImageUrl = &req.ImageUrl
 		user.IsVerified = true // Ensure Google users are verified
 		user.UpdatedAt = time.Now()

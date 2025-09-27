@@ -248,6 +248,7 @@ func main() {
 	log.Println("  POST /api/v1/auth/verify-otp   - Verify OTP")
 	log.Println("  POST /api/v1/auth/resend-otp   - Resend OTP")
 	log.Println("  POST /api/v1/auth/refresh-token - Refresh JWT token")
+	log.Println("  POST /api/v1/auth/google-oauth - Google OAuth login")
 	log.Println("  GET  /api/v1/user/profile      - Get user profile (protected)")
 	log.Println("  PUT  /api/v1/user/profile      - Update user profile (protected)")
 	log.Println("  GET  /health                   - Health check")
