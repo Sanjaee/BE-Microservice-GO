@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"user-service/internal/events"
 	"user-service/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,7 @@ type UserHandler struct {
 	otpService     *models.OTPService
 	JWTService     *JWTService
 	validator      *validator.Validate
+	eventService   *events.EventService
 }
 
 // NewUserHandler creates a new user handler
@@ -29,12 +31,20 @@ func NewUserHandler(db *gorm.DB) *UserHandler {
 		log.Println("⚠️ .env file not found in user handlers package, using system env")
 	}
 
+	// Initialize event service
+	eventService, err := events.NewEventService()
+	if err != nil {
+		log.Printf("⚠️ Failed to initialize event service: %v", err)
+		// Continue without event service for now
+	}
+
 	return &UserHandler{
 		db:              db,
 		passwordService: models.NewPasswordService(),
 		otpService:      models.NewOTPService(),
 		JWTService:      NewJWTService(),
 		validator:       validator.New(),
+		eventService:    eventService,
 	}
 }
 
@@ -82,17 +92,28 @@ func (uh *UserHandler) Register(c *gin.Context) {
 		IsVerified:   false,
 	}
 
+	// Save user to database
 	if err := uh.db.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
-	// TODO: Send OTP via email (implement email service)
-	// For now, we'll return the OTP in response (remove this in production)
+	// Publish user registered event to message broker
+	if uh.eventService != nil {
+		if err := uh.eventService.PublishUserRegistered(user.ID.String(), user.Username, user.Email); err != nil {
+			log.Printf("⚠️ Failed to publish user registered event: %v", err)
+			// Don't fail the registration if event publishing fails
+		} else {
+			log.Printf("✅ User registered event published for: %s", user.Email)
+		}
+	} else {
+		log.Printf("⚠️ Event service not available, skipping event publishing")
+	}
+
+	// Return success response (OTP will be sent via email through message broker)
 	c.JSON(http.StatusCreated, gin.H{
-		"message": "User registered successfully. Please verify your email.",
+		"message": "User registered successfully. Please check your email for verification code.",
 		"user":    user.ToResponse(),
-		"otp":     otp, // Remove this in production
 	})
 }
 
@@ -190,6 +211,16 @@ func (uh *UserHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
+	// Publish user verified event to message broker
+	if uh.eventService != nil {
+		if err := uh.eventService.PublishUserVerified(user.ID.String(), user.Username, user.Email); err != nil {
+			log.Printf("⚠️ Failed to publish user verified event: %v", err)
+			// Don't fail the verification if event publishing fails
+		} else {
+			log.Printf("✅ User verified event published for: %s", user.Email)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email verified successfully",
 		"user":    user.ToResponse(),
@@ -246,11 +277,18 @@ func (uh *UserHandler) ResendOTP(c *gin.Context) {
 		return
 	}
 
-	// TODO: Send OTP via email (implement email service)
-	// For now, we'll return the OTP in response (remove this in production)
+	// Publish user registered event again to resend OTP
+	if uh.eventService != nil {
+		if err := uh.eventService.PublishUserRegistered(user.ID.String(), user.Username, user.Email); err != nil {
+			log.Printf("⚠️ Failed to publish resend OTP event: %v", err)
+			// Don't fail the resend if event publishing fails
+		} else {
+			log.Printf("✅ Resend OTP event published for: %s", user.Email)
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "OTP sent successfully",
-		"otp":     otp, // Remove this in production
+		"message": "OTP sent successfully. Please check your email.",
 	})
 }
 

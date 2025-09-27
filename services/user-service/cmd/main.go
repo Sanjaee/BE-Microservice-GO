@@ -11,14 +11,16 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"user-service/internal/consumers"
 	"user-service/internal/events"
 	"user-service/internal/handlers"
 	"user-service/internal/models"
 )
 
 var (
-	DB           *gorm.DB
-	EventService *events.EventService
+	DB             *gorm.DB
+	EventService   *events.EventService
+	EmailConsumer  *consumers.EmailConsumer
 )
 
 func initDB() {
@@ -99,6 +101,24 @@ func initRabbitMQ() {
 		EventService = nil
 	} else {
 		log.Println("✅ RabbitMQ connected successfully!")
+	}
+}
+
+func initEmailConsumer() {
+	var err error
+	EmailConsumer, err = consumers.NewEmailConsumer()
+	if err != nil {
+		log.Printf("⚠️ Failed to initialize email consumer: %v", err)
+		log.Println("⚠️ Continuing without email consumer...")
+	} else {
+		log.Println("✅ Email consumer initialized successfully")
+		
+		// Start the email consumer
+		if err := EmailConsumer.Start(); err != nil {
+			log.Printf("⚠️ Failed to start email consumer: %v", err)
+		} else {
+			log.Println("✅ Email consumer started successfully")
+		}
 	}
 }
 
@@ -207,6 +227,9 @@ func main() {
 
 	// Initialize RabbitMQ
 	initRabbitMQ()
+
+	// Initialize Email Consumer
+	initEmailConsumer()
 
 	// Setup routes
 	r := setupRoutes()
