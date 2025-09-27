@@ -1,0 +1,325 @@
+{
+  "info": {
+    "_postman_id": "user-service-api-collection",
+    "name": "User Service API Gateway",
+    "description": "Complete API collection for User Service microservice through API Gateway",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "API Gateway Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check API Gateway health status"
+          },
+          "response": []
+        },
+        {
+          "name": "User Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/user/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "user", "health"]
+            },
+            "description": "Check User Service health status through API Gateway"
+          },
+          "response": []
+        }
+      ],
+      "description": "Health check endpoints for both API Gateway and User Service"
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save OTP from response for verification",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.otp) {",
+                  "        pm.environment.set('otp_code', response.otp);",
+                  "        console.log('OTP saved:', response.otp);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "register"]
+            },
+            "description": "Register a new user with username, email, and password"
+          },
+          "response": []
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"otp_code\": \"{{otp_code}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify-otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "verify-otp"]
+            },
+            "description": "Verify OTP code for email verification"
+          },
+          "response": []
+        },
+        {
+          "name": "Resend OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save new OTP from response",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.otp) {",
+                  "        pm.environment.set('otp_code', response.otp);",
+                  "        console.log('New OTP saved:', response.otp);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/resend-otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "resend-otp"]
+            },
+            "description": "Resend OTP code to user's email"
+          },
+          "response": []
+        },
+        {
+          "name": "Login User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save tokens from response",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.access_token) {",
+                  "        pm.environment.set('access_token', response.access_token);",
+                  "        console.log('Access token saved');",
+                  "    }",
+                  "    if (response.refresh_token) {",
+                  "        pm.environment.set('refresh_token', response.refresh_token);",
+                  "        console.log('Refresh token saved');",
+                  "    }",
+                  "    if (response.user) {",
+                  "        pm.environment.set('user_id', response.user.id);",
+                  "        pm.environment.set('username', response.user.username);",
+                  "        pm.environment.set('user_email', response.user.email);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Login user with email and password"
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save new tokens from response",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.access_token) {",
+                  "        pm.environment.set('access_token', response.access_token);",
+                  "        console.log('New access token saved');",
+                  "    }",
+                  "    if (response.refresh_token) {",
+                  "        pm.environment.set('refresh_token', response.refresh_token);",
+                  "        console.log('New refresh token saved');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh-token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "refresh-token"]
+            },
+            "description": "Refresh access token using refresh token"
+          },
+          "response": []
+        }
+      ],
+      "description": "Authentication endpoints for user registration, login, and OTP verification"
+    },
+    {
+      "name": "User Profile (Protected)",
+      "item": [
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "user", "profile"]
+            },
+            "description": "Get current user profile (requires authentication)"
+          },
+          "response": []
+        },
+        {
+          "name": "Update User Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"updatedusername\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "user", "profile"]
+            },
+            "description": "Update user profile information (requires authentication)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Protected user profile endpoints that require JWT authentication"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [""]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    }
+  ]
+}

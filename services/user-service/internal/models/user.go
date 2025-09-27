@@ -1,0 +1,75 @@
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+)
+
+// User represents the user model in the database
+type User struct {
+	ID           uuid.UUID `json:"id" gorm:"type:uuid;primary_key;default:gen_random_uuid()"`
+	Username     string    `json:"username" gorm:"uniqueIndex;not null;size:100" validate:"required,min=3,max=100"`
+	Email        string    `json:"email" gorm:"uniqueIndex;not null;size:150" validate:"required,email"`
+	PasswordHash string    `json:"-" gorm:"not null"` // Hidden from JSON
+	OTPCode      *string   `json:"-" gorm:"size:6"`   // Hidden from JSON
+	IsVerified   bool      `json:"is_verified" gorm:"default:false"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// UserRegisterRequest represents the request payload for user registration
+type UserRegisterRequest struct {
+	Username string `json:"username" validate:"required,min=3,max=100"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=6"`
+}
+
+// UserLoginRequest represents the request payload for user login
+type UserLoginRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+}
+
+// OTPVerifyRequest represents the request payload for OTP verification
+type OTPVerifyRequest struct {
+	Email   string `json:"email" validate:"required,email"`
+	OTPCode string `json:"otp_code" validate:"required,len=6"`
+}
+
+// UserResponse represents the response payload for user data
+type UserResponse struct {
+	ID         uuid.UUID `json:"id"`
+	Username   string    `json:"username"`
+	Email      string    `json:"email"`
+	IsVerified bool      `json:"is_verified"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// AuthResponse represents the response payload for authentication
+type AuthResponse struct {
+	User         UserResponse `json:"user"`
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	ExpiresIn    int64        `json:"expires_in"`
+}
+
+// BeforeCreate hook to set UUID if not provided
+func (u *User) BeforeCreate(tx *gorm.DB) error {
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	return nil
+}
+
+// ToResponse converts User to UserResponse
+func (u *User) ToResponse() UserResponse {
+	return UserResponse{
+		ID:         u.ID,
+		Username:   u.Username,
+		Email:      u.Email,
+		IsVerified: u.IsVerified,
+		CreatedAt:  u.CreatedAt,
+	}
+}
