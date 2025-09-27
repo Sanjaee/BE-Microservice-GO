@@ -211,6 +211,13 @@ func (uh *UserHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
+	// Generate tokens after successful verification
+	authResponse, err := uh.JWTService.GenerateTokens(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
+		return
+	}
+
 	// Publish user verified event to message broker
 	if uh.eventService != nil {
 		if err := uh.eventService.PublishUserVerified(user.ID.String(), user.Username, user.Email); err != nil {
@@ -221,10 +228,7 @@ func (uh *UserHandler) VerifyOTP(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Email verified successfully",
-		"user":    user.ToResponse(),
-	})
+	c.JSON(http.StatusOK, authResponse)
 }
 
 // ResendOTP handles OTP resending
