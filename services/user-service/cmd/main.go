@@ -205,6 +205,8 @@ func setupRoutes() *gin.Engine {
 			public.POST("/resend-otp", userHandler.ResendOTP)
 			public.POST("/refresh-token", userHandler.RefreshToken)
 			public.POST("/google-oauth", userHandler.GoogleOAuth)
+			public.POST("/request-reset-password", userHandler.RequestResetPassword)
+			public.POST("/verify-reset-password", userHandler.VerifyResetPassword)
 		}
 
 		// Protected routes (authentication required)
@@ -249,6 +251,8 @@ func main() {
 	log.Println("  POST /api/v1/auth/resend-otp   - Resend OTP")
 	log.Println("  POST /api/v1/auth/refresh-token - Refresh JWT token")
 	log.Println("  POST /api/v1/auth/google-oauth - Google OAuth login")
+	log.Println("  POST /api/v1/auth/request-reset-password - Request password reset")
+	log.Println("  POST /api/v1/auth/verify-reset-password - Verify reset password")
 	log.Println("  GET  /api/v1/user/profile      - Get user profile (protected)")
 	log.Println("  PUT  /api/v1/user/profile      - Update user profile (protected)")
 	log.Println("  GET  /health                   - Health check")

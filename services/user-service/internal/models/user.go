@@ -40,6 +40,18 @@ type OTPVerifyRequest struct {
 	OTPCode string `json:"otp_code" validate:"required,len=6"`
 }
 
+// ResetPasswordRequest represents the request payload for password reset
+type ResetPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+// VerifyResetPasswordRequest represents the request payload for reset password verification
+type VerifyResetPasswordRequest struct {
+	Email       string `json:"email" validate:"required,email"`
+	OTPCode     string `json:"otp_code" validate:"required,len=6"`
+	NewPassword string `json:"new_password" validate:"required,min=6"`
+}
+
 // UserResponse represents the response payload for user data
 type UserResponse struct {
 	ID         uuid.UUID `json:"id"`

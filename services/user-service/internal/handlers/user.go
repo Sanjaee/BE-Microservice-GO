@@ -419,6 +419,157 @@ func (uh *UserHandler) RefreshToken(c *gin.Context) {
 	c.JSON(http.StatusOK, authResponse)
 }
 
+// RequestResetPassword handles password reset request
+func (uh *UserHandler) RequestResetPassword(c *gin.Context) {
+	var req models.ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Validate request
+	if err := uh.validator.Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find user by email
+	var user models.User
+	if err := uh.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// Don't reveal if email exists or not for security
+			c.JSON(http.StatusOK, gin.H{
+				"message": "If the email exists, a reset code has been sent.",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	// Check if user is verified
+	if !user.IsVerified {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Account not verified. Please verify your email first."})
+		return
+	}
+
+	// Generate OTP for password reset
+	otp, err := uh.otpService.GenerateOTP()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate reset code"})
+		return
+	}
+
+	// Update user with reset OTP
+	user.OTPCode = &otp
+	user.UpdatedAt = time.Now()
+
+	if err := uh.db.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate reset code"})
+		return
+	}
+
+	// Publish password reset event to message broker
+	if uh.eventService != nil {
+		if err := uh.eventService.PublishPasswordReset(user.ID.String(), user.Username, user.Email); err != nil {
+			log.Printf("⚠️ Failed to publish password reset event: %v", err)
+			// Don't fail the request if event publishing fails
+		} else {
+			log.Printf("✅ Password reset event published for: %s", user.Email)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "If the email exists, a reset code has been sent.",
+	})
+}
+
+// VerifyResetPassword handles password reset verification
+func (uh *UserHandler) VerifyResetPassword(c *gin.Context) {
+	var req models.VerifyResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Validate request
+	if err := uh.validator.Struct(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate OTP format
+	if !uh.otpService.ValidateOTP(req.OTPCode) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reset code format"})
+		return
+	}
+
+	// Find user by email
+	var user models.User
+	if err := uh.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+
+	// Check if user is verified
+	if !user.IsVerified {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Account not verified. Please verify your email first."})
+		return
+	}
+
+	// Verify OTP
+	if user.OTPCode == nil || *user.OTPCode != req.OTPCode {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid reset code"})
+		return
+	}
+
+	// Hash new password
+	hashedPassword, err := uh.passwordService.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process new password"})
+		return
+	}
+
+	// Update user password and clear OTP
+	user.PasswordHash = hashedPassword
+	user.OTPCode = nil
+	user.UpdatedAt = time.Now()
+
+	if err := uh.db.Save(&user).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		return
+	}
+
+	// Generate new tokens after successful password reset
+	authResponse, err := uh.JWTService.GenerateTokens(&user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate tokens"})
+		return
+	}
+
+	// Publish password reset success event
+	if uh.eventService != nil {
+		if err := uh.eventService.PublishPasswordResetSuccess(user.ID.String(), user.Username, user.Email); err != nil {
+			log.Printf("⚠️ Failed to publish password reset success event: %v", err)
+			// Don't fail the request if event publishing fails
+		} else {
+			log.Printf("✅ Password reset success event published for: %s", user.Email)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Password reset successfully",
+		"user":    user.ToResponse(),
+		"access_token": authResponse.AccessToken,
+		"refresh_token": authResponse.RefreshToken,
+		"expires_in": authResponse.ExpiresIn,
+	})
+}
+
 // GoogleOAuth handles Google OAuth user creation/update
 func (uh *UserHandler) GoogleOAuth(c *gin.Context) {
 	var req struct {

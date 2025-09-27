@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"gopkg.in/gomail.v2"
@@ -171,6 +172,117 @@ func (es *EmailService) SendWelcomeEmail(to, username string) error {
     </div>
 </body>
 </html>`, subject, username)
+
+	return es.SendEmail(EmailData{
+		To:      to,
+		Subject: subject,
+		Body:    body,
+	})
+}
+
+// SendPasswordResetEmail sends password reset OTP email
+func (es *EmailService) SendPasswordResetEmail(to, username, otp string) error {
+	subject := "Reset Password - ZACloth"
+	body := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>%s</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .otp-code { background: #e74c3c; color: white; font-size: 32px; font-weight: bold; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0; letter-spacing: 5px; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+        .warning { background: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Reset Password - ZACloth</h1>
+        </div>
+        <div class="content">
+            <h2>Halo %s!</h2>
+            <p>Kami menerima permintaan untuk mereset password akun ZACloth Anda. Gunakan kode verifikasi berikut untuk melanjutkan:</p>
+            
+            <div class="otp-code">%s</div>
+            
+            <div class="warning">
+                <strong>⚠️ Penting:</strong>
+                <ul>
+                    <li>Kode ini berlaku selama 10 menit</li>
+                    <li>Jangan bagikan kode ini kepada siapa pun</li>
+                    <li>Jika Anda tidak meminta reset password, abaikan email ini</li>
+                </ul>
+            </div>
+            
+            <p>Jika Anda tidak meminta reset password, silakan abaikan email ini dan password Anda akan tetap aman.</p>
+            
+            <p>Terima kasih,<br>Tim ZACloth</p>
+        </div>
+        <div class="footer">
+            <p>Email ini dikirim secara otomatis, mohon tidak membalas email ini.</p>
+        </div>
+    </div>
+</body>
+</html>`, subject, username, otp)
+
+	return es.SendEmail(EmailData{
+		To:      to,
+		Subject: subject,
+		Body:    body,
+	})
+}
+
+// SendPasswordResetSuccessEmail sends password reset success email
+func (es *EmailService) SendPasswordResetSuccessEmail(to, username string) error {
+	subject := "Password Berhasil Direset - ZACloth"
+	body := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>%s</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #27ae60 0%%, #2ecc71 100%%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 14px; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Password Berhasil Direset!</h1>
+        </div>
+        <div class="content">
+            <h2>Halo %s!</h2>
+            <p>Password akun ZACloth Anda telah berhasil direset pada %s.</p>
+            
+            <div class="success">
+                <strong>✅ Konfirmasi:</strong>
+                <ul>
+                    <li>Password baru Anda telah aktif</li>
+                    <li>Anda telah otomatis login ke akun</li>
+                    <li>Semua sesi sebelumnya telah diakhiri</li>
+                </ul>
+            </div>
+            
+            <p>Jika Anda tidak melakukan reset password ini, segera hubungi tim support kami.</p>
+            
+            <p>Terima kasih,<br>Tim ZACloth</p>
+        </div>
+        <div class="footer">
+            <p>Email ini dikirim secara otomatis, mohon tidak membalas email ini.</p>
+        </div>
+    </div>
+</body>
+</html>`, subject, username, time.Now().Format("02 Januari 2006, 15:04 WIB"))
 
 	return es.SendEmail(EmailData{
 		To:      to,

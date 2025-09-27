@@ -131,17 +131,26 @@ func NewEmailConsumer() (*EmailConsumer, error) {
 		return nil, fmt.Errorf("failed to declare queue: %w", err)
 	}
 
-	// Bind queue to exchange
-	if err := ch.QueueBind(
-		q.Name,
+	// Bind queue to exchange for multiple event types
+	bindings := []string{
 		"user.registered",
-		"user.events",
-		false,
-		nil,
-	); err != nil {
-		ch.Close()
-		conn.Close()
-		return nil, fmt.Errorf("failed to bind queue: %w", err)
+		"user.verified", 
+		"password.reset",
+		"password.reset.success",
+	}
+	
+	for _, binding := range bindings {
+		if err := ch.QueueBind(
+			q.Name,
+			binding,
+			"user.events",
+			false,
+			nil,
+		); err != nil {
+			ch.Close()
+			conn.Close()
+			return nil, fmt.Errorf("failed to bind queue to %s: %w", binding, err)
+		}
 	}
 
 	return &EmailConsumer{
@@ -208,6 +217,18 @@ func (ec *EmailConsumer) processMessage(msg amqp.Delivery) {
 	case "user.verified":
 		if err := ec.handleUserVerified(event); err != nil {
 			log.Printf("❌ Failed to handle user verified event: %v", err)
+			msg.Nack(false, true) // Reject and requeue
+			return
+		}
+	case "password.reset":
+		if err := ec.handlePasswordReset(event); err != nil {
+			log.Printf("❌ Failed to handle password reset event: %v", err)
+			msg.Nack(false, true) // Reject and requeue
+			return
+		}
+	case "password.reset.success":
+		if err := ec.handlePasswordResetSuccess(event); err != nil {
+			log.Printf("❌ Failed to handle password reset success event: %v", err)
 			msg.Nack(false, true) // Reject and requeue
 			return
 		}
@@ -294,6 +315,81 @@ func (ec *EmailConsumer) handleUserVerified(event events.Event) error {
 	}
 
 	log.Printf("✅ Welcome email sent successfully to: %s", email)
+	return nil
+}
+
+// handlePasswordReset handles password reset email
+func (ec *EmailConsumer) handlePasswordReset(event events.Event) error {
+	// Extract user data from event
+	userData, ok := event.Data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid user data format")
+	}
+
+	userID, ok := userData["user_id"].(string)
+	if !ok {
+		return fmt.Errorf("missing user_id")
+	}
+
+	username, ok := userData["username"].(string)
+	if !ok {
+		return fmt.Errorf("missing username")
+	}
+
+	email, ok := userData["email"].(string)
+	if !ok {
+		return fmt.Errorf("missing email")
+	}
+
+	// Get OTP from database
+	var user models.User
+	if err := ec.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return fmt.Errorf("failed to find user: %w", err)
+	}
+
+	if user.OTPCode == nil {
+		return fmt.Errorf("no OTP found for user")
+	}
+
+	otp := *user.OTPCode
+
+	log.Printf("📧 Sending password reset email to: %s (%s)", username, email)
+
+	// Send password reset email
+	if err := ec.emailService.SendPasswordResetEmail(email, username, otp); err != nil {
+		return fmt.Errorf("failed to send password reset email: %w", err)
+	}
+
+	log.Printf("✅ Password reset email sent successfully to: %s", email)
+	return nil
+}
+
+// handlePasswordResetSuccess handles password reset success email
+func (ec *EmailConsumer) handlePasswordResetSuccess(event events.Event) error {
+	// Extract user data from event
+	userData, ok := event.Data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid user data format")
+	}
+
+	username, ok := userData["username"].(string)
+	if !ok {
+		return fmt.Errorf("missing username")
+	}
+
+	email, ok := userData["email"].(string)
+	if !ok {
+		return fmt.Errorf("missing email")
+	}
+
+	log.Printf("📧 Sending password reset success email to: %s (%s)", username, email)
+
+	// Send password reset success email
+	if err := ec.emailService.SendPasswordResetSuccessEmail(email, username); err != nil {
+		return fmt.Errorf("failed to send password reset success email: %w", err)
+	}
+
+	log.Printf("✅ Password reset success email sent successfully to: %s", email)
 	return nil
 }
 

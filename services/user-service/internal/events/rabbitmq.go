@@ -45,6 +45,20 @@ type UserLoginEvent struct {
 	Email    string `json:"email"`
 }
 
+// PasswordResetEvent represents password reset event
+type PasswordResetEvent struct {
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
+// PasswordResetSuccessEvent represents password reset success event
+type PasswordResetSuccessEvent struct {
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
 // NewEventService creates a new event service
 func NewEventService() (*EventService, error) {
 	// Load .env file
@@ -150,6 +164,34 @@ func (es *EventService) PublishUserLogin(userID, username, email string) error {
 	}
 
 	return es.publishEvent("user.login", event)
+}
+
+// PublishPasswordReset publishes password reset event
+func (es *EventService) PublishPasswordReset(userID, username, email string) error {
+	event := Event{
+		Type: "password.reset",
+		Data: PasswordResetEvent{
+			UserID:   userID,
+			Username: username,
+			Email:    email,
+		},
+	}
+
+	return es.publishEvent("password.reset", event)
+}
+
+// PublishPasswordResetSuccess publishes password reset success event
+func (es *EventService) PublishPasswordResetSuccess(userID, username, email string) error {
+	event := Event{
+		Type: "password.reset.success",
+		Data: PasswordResetSuccessEvent{
+			UserID:   userID,
+			Username: username,
+			Email:    email,
+		},
+	}
+
+	return es.publishEvent("password.reset.success", event)
 }
 
 // publishEvent publishes a generic event

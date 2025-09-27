@@ -55,6 +55,8 @@ func main() {
 			authRoutes.POST("/resend-otp", proxyToUserService("POST", "/api/v1/auth/resend-otp"))
 			authRoutes.POST("/refresh-token", proxyToUserService("POST", "/api/v1/auth/refresh-token"))
 			authRoutes.POST("/google-oauth", proxyToUserService("POST", "/api/v1/auth/google-oauth"))
+			authRoutes.POST("/request-reset-password", proxyToUserService("POST", "/api/v1/auth/request-reset-password"))
+			authRoutes.POST("/verify-reset-password", proxyToUserService("POST", "/api/v1/auth/verify-reset-password"))
 		}
 
 		// Protected user routes
@@ -87,6 +89,8 @@ func main() {
 	log.Println("  POST /api/v1/auth/resend-otp   - Resend OTP")
 	log.Println("  POST /api/v1/auth/refresh-token - Refresh JWT token")
 	log.Println("  POST /api/v1/auth/google-oauth - Google OAuth login")
+	log.Println("  POST /api/v1/auth/request-reset-password - Request password reset")
+	log.Println("  POST /api/v1/auth/verify-reset-password - Verify reset password")
 	log.Println("  GET  /api/v1/user/profile      - Get user profile (protected)")
 	log.Println("  PUT  /api/v1/user/profile      - Update user profile (protected)")
 	log.Println("  GET  /api/v1/products          - Get all products")
