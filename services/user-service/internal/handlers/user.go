@@ -136,7 +136,11 @@ func (uh *UserHandler) Login(c *gin.Context) {
 	var user models.User
 	if err := uh.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "User not found",
+				"message": "Email tidak terdaftar. Silakan periksa kembali email Anda atau daftar akun baru.",
+				"code": "USER_NOT_FOUND",
+			})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
@@ -145,13 +149,21 @@ func (uh *UserHandler) Login(c *gin.Context) {
 
 	// Check if user type is credential (not Google OAuth user)
 	if user.Type != "credential" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "This account was created with Google. Please use Google sign-in instead."})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Account type mismatch",
+			"message": "Akun ini dibuat dengan Google. Silakan gunakan tombol 'Masuk dengan Google' untuk login.",
+			"code": "ACCOUNT_TYPE_MISMATCH",
+		})
 		return
 	}
 
 	// Verify password
 	if err := uh.passwordService.VerifyPassword(user.PasswordHash, req.Password); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Invalid password",
+			"message": "Password yang Anda masukkan salah. Silakan coba lagi.",
+			"code": "INVALID_PASSWORD",
+		})
 		return
 	}
 
