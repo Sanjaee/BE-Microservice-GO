@@ -1,0 +1,477 @@
+{
+  "info": {
+    "_postman_id": "product-service-api-collection",
+    "name": "Product Service API Gateway",
+    "description": "Complete API collection for Product Service microservice through API Gateway",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Checks",
+      "item": [
+        {
+          "name": "API Gateway Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check API Gateway health status"
+          },
+          "response": []
+        },
+        {
+          "name": "Product Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "health"]
+            },
+            "description": "Check Product Service health status through API Gateway"
+          },
+          "response": []
+        }
+      ],
+      "description": "Health check endpoints for both API Gateway and Product Service"
+    },
+    {
+      "name": "Product Management",
+      "item": [
+        {
+          "name": "Get All Products (Basic)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"]
+            },
+            "description": "Get all products with default pagination (page=1, limit=20)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Pagination)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number (starts from 1)"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of items per page (max 100)"
+                }
+              ]
+            },
+            "description": "Get products with custom pagination"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Keyset Pagination)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?limit=20&cursor=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of items per page"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "Cursor for keyset pagination (empty for first page)"
+                }
+              ]
+            },
+            "description": "Get products using keyset pagination for better performance"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Search)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?search=nike&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "nike",
+                  "description": "Search term for product name or description"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of items per page"
+                }
+              ]
+            },
+            "description": "Search products by name or description"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Price Filter)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?min_price=50&max_price=200&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "min_price",
+                  "value": "50",
+                  "description": "Minimum price filter"
+                },
+                {
+                  "key": "max_price",
+                  "value": "200",
+                  "description": "Maximum price filter"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of items per page"
+                }
+              ]
+            },
+            "description": "Filter products by price range"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Active Only)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?is_active=true&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "is_active",
+                  "value": "true",
+                  "description": "Filter by active status"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Number of items per page"
+                }
+              ]
+            },
+            "description": "Get only active products"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products (Combined Filters)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?search=shoes&min_price=100&max_price=500&is_active=true&page=1&limit=15",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "shoes",
+                  "description": "Search term"
+                },
+                {
+                  "key": "min_price",
+                  "value": "100",
+                  "description": "Minimum price"
+                },
+                {
+                  "key": "max_price",
+                  "value": "500",
+                  "description": "Maximum price"
+                },
+                {
+                  "key": "is_active",
+                  "value": "true",
+                  "description": "Active products only"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "15",
+                  "description": "Items per page"
+                }
+              ]
+            },
+            "description": "Get products with multiple filters combined"
+          },
+          "response": []
+        }
+      ],
+      "description": "Product listing endpoints with various filtering and pagination options"
+    },
+    {
+      "name": "Product Details",
+      "item": [
+        {
+          "name": "Get Product by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Save product ID from response for other requests",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.id) {",
+                  "        pm.environment.set('product_id', response.id);",
+                  "        console.log('Product ID saved:', response.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "{{product_id}}"]
+            },
+            "description": "Get specific product by ID with all details and images"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product by ID (Sample)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/550e8400-e29b-41d4-a716-446655440000",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "550e8400-e29b-41d4-a716-446655440000"
+              ]
+            },
+            "description": "Get product by sample UUID (replace with actual product ID)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Product detail endpoints for getting specific product information"
+    },
+    {
+      "name": "Performance Testing",
+      "item": [
+        {
+          "name": "Load Test - Get All Products",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?limit=100",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100",
+                  "description": "Maximum items per page for load testing"
+                }
+              ]
+            },
+            "description": "Load test endpoint to get maximum products per request"
+          },
+          "response": []
+        },
+        {
+          "name": "Cache Test - Same Request Multiple Times",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Test Redis caching by making the same request multiple times"
+          },
+          "response": []
+        }
+      ],
+      "description": "Performance and caching test endpoints"
+    },
+    {
+      "name": "Error Testing",
+      "item": [
+        {
+          "name": "Get Product - Invalid UUID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/invalid-uuid",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products", "invalid-uuid"]
+            },
+            "description": "Test error handling with invalid UUID format"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product - Non-existent ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Test error handling with non-existent product ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Products - Invalid Pagination",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/products?page=0&limit=1000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "products"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0",
+                  "description": "Invalid page number (should be >= 1)"
+                },
+                {
+                  "key": "limit",
+                  "value": "1000",
+                  "description": "Invalid limit (max is 100)"
+                }
+              ]
+            },
+            "description": "Test validation with invalid pagination parameters"
+          },
+          "response": []
+        }
+      ],
+      "description": "Error handling test endpoints"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set default product ID if not exists",
+          "if (!pm.environment.get('product_id')) {",
+          "    pm.environment.set('product_id', '550e8400-e29b-41d4-a716-446655440000');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script for all requests",
+          "pm.test('Response time is less than 2000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+          "});",
+          "",
+          "pm.test('Response has valid JSON', function () {",
+          "    pm.response.to.be.json;",
+          "});",
+          "",
+          "// Test for successful responses",
+          "if (pm.response.code >= 200 && pm.response.code < 300) {",
+          "    pm.test('Response is successful', function () {",
+          "        pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "    });",
+          "}",
+          "",
+          "// Test for error responses",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error response has message', function () {",
+          "        const response = pm.response.json();",
+          "        pm.expect(response).to.have.property('error');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "API Gateway base URL"
+    },
+    {
+      "key": "product_id",
+      "value": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "string",
+      "description": "Sample product ID for testing"
+    }
+  ]
+}
