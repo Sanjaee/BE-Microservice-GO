@@ -168,6 +168,10 @@ func NewMidtransService() *MidtransService {
 		clientKey = "SB-Mid-client-4zIt7djwCeRdMpgF4gXDjciC"
 	}
 
+	// Log configuration for debugging
+	fmt.Printf("🔧 Midtrans Config - Environment: %s, BaseURL: %s\n", environment, baseURL)
+	fmt.Printf("🔧 Server Key: %s...\n", serverKey[:20])
+
 	return &MidtransService{
 		serverKey:   serverKey,
 		clientKey:   clientKey,
@@ -181,9 +185,17 @@ func NewMidtransService() *MidtransService {
 
 // CreatePayment creates a payment using Midtrans
 func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.User, product *models.Product) (*MidtransChargeResponse, error) {
+	// Map payment method to Midtrans payment type
+	paymentType := string(payment.PaymentMethod)
+	
+	// Special mapping for GoPay to QRIS (like in the working example)
+	if payment.PaymentMethod == models.PaymentMethodGoPay {
+		paymentType = "qris"
+	}
+
 	// Prepare charge request
 	chargeReq := MidtransChargeRequest{
-		PaymentType: string(payment.PaymentMethod),
+		PaymentType: paymentType,
 		TransactionDetails: TransactionDetails{
 			OrderID:     payment.OrderID,
 			GrossAmount: payment.TotalAmount,
@@ -232,6 +244,7 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 		}
 
 	case models.PaymentMethodGoPay:
+		// For GoPay, we use QRIS payment type but still include GoPay details
 		chargeReq.GoPay = &GoPayDetails{
 			EnableCallback: true,
 			CallbackURL:    ms.getCallbackURL(),
@@ -331,6 +344,9 @@ func (ms *MidtransService) charge(chargeReq MidtransChargeRequest) (*MidtransCha
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	// Log the request for debugging
+	fmt.Printf("🔍 Midtrans Request: %s\n", string(jsonData))
+
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -352,8 +368,11 @@ func (ms *MidtransService) charge(chargeReq MidtransChargeRequest) (*MidtransCha
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
+	// Log the response for debugging
+	fmt.Printf("🔍 Midtrans Response: %s\n", string(body))
+
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Midtrans API error: %s", string(body))
+		return nil, fmt.Errorf("Midtrans API error (Status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var chargeResp MidtransChargeResponse

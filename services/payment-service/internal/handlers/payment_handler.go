@@ -113,11 +113,15 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// Calculate total amount
+	// Calculate total amount (ensure amounts are in cents)
 	totalAmount := req.Amount + req.AdminFee
 
 	// Generate order ID
 	orderID := fmt.Sprintf("Order_%d", time.Now().UnixNano())
+	
+	// Log payment details for debugging
+	fmt.Printf("🔍 Payment Details - Amount: %d, AdminFee: %d, TotalAmount: %d, PaymentMethod: %s\n", 
+		req.Amount, req.AdminFee, totalAmount, req.PaymentMethod)
 
 	// Create payment record
 	payment := &models.Payment{
@@ -599,7 +603,7 @@ func (ph *PaymentHandler) getProductFromService(productID uuid.UUID) (*models.Pr
 		ID:          productID,
 		Name:        "Test Product",
 		Description: "Test Product Description",
-		Price:       100000,
+		Price:       100000.0, // Make sure this is float64
 		Stock:       10,
 		IsActive:    true,
 	}, nil
