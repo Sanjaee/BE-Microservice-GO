@@ -3,12 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"payment-service/internal/cache"
+	"payment-service/internal/consumers"
 	"payment-service/internal/events"
 	"payment-service/internal/models"
 	"payment-service/internal/repository"
@@ -26,6 +28,7 @@ type PaymentHandler struct {
 	cacheSvc      *cache.CacheService
 	userServiceURL string
 	productServiceURL string
+	validationConsumer *consumers.ValidationConsumer
 }
 
 // NewPaymentHandler creates a new payment handler
@@ -35,6 +38,7 @@ func NewPaymentHandler(
 	eventSvc *events.EventService,
 	cacheSvc *cache.CacheService,
 	userServiceURL, productServiceURL string,
+	validationConsumer *consumers.ValidationConsumer,
 ) *PaymentHandler {
 	return &PaymentHandler{
 		paymentRepo:       paymentRepo,
@@ -43,10 +47,11 @@ func NewPaymentHandler(
 		cacheSvc:          cacheSvc,
 		userServiceURL:    userServiceURL,
 		productServiceURL: productServiceURL,
+		validationConsumer: validationConsumer,
 	}
 }
 
-// CreatePayment creates a new payment
+// CreatePayment creates a new payment using event-driven architecture
 func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 	var req models.CreatePaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -77,17 +82,32 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// Get user data from user service
+	// Calculate total amount (amounts are in rupiah)
+	totalAmount := req.Amount + req.AdminFee
+
+	// Generate order ID and payment ID
+	orderID := fmt.Sprintf("Order_%d", time.Now().UnixNano())
+	paymentID := uuid.New().String()
+	
+	// Log payment details for debugging
+	fmt.Printf("🔍 Event-Driven Payment Details - Amount: %d, AdminFee: %d, TotalAmount: %d, PaymentMethod: %s\n", 
+		req.Amount, req.AdminFee, totalAmount, req.PaymentMethod)
+
+	// Get user data from user service (for Midtrans)
+	fmt.Printf("🔍 Getting user data for userID: %s from service: %s\n", userID.String(), ph.userServiceURL)
 	user, err := ph.getUserFromService(userID)
 	if err != nil {
+		fmt.Printf("❌ Failed to get user data: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "Failed to get user data",
+			"details": err.Error(),
 		})
 		return
 	}
+	fmt.Printf("✅ Successfully got user data: %+v\n", user)
 
-	// Get product data from product service
+	// Get product data from product service (for Midtrans)
 	product, err := ph.getProductFromService(*req.ProductID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -114,18 +134,9 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// Calculate total amount (amounts are in rupiah)
-	totalAmount := req.Amount + req.AdminFee
-
-	// Generate order ID
-	orderID := fmt.Sprintf("Order_%d", time.Now().UnixNano())
-	
-	// Log payment details for debugging
-	fmt.Printf("🔍 Payment Details - Amount: %d, AdminFee: %d, TotalAmount: %d, PaymentMethod: %s\n", 
-		req.Amount, req.AdminFee, totalAmount, req.PaymentMethod)
-
-	// Create payment record
+	// Create payment record (without Midtrans data yet)
 	payment := &models.Payment{
+		ID:            uuid.MustParse(paymentID),
 		OrderID:       orderID,
 		UserID:        userID,
 		ProductID:     req.ProductID,
@@ -284,7 +295,7 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 	ph.cacheSvc.SetPayment(payment.ID.String(), paymentResponse, 1*time.Hour)
 	ph.cacheSvc.SetPaymentByOrderID(payment.OrderID, paymentResponse, 1*time.Hour)
 
-	// Publish payment created event
+	// Publish payment created event (optional for other services)
 	ph.eventSvc.PublishPaymentCreated(
 		payment.ID.String(),
 		payment.OrderID,
@@ -925,25 +936,127 @@ func (ph *PaymentHandler) CheckPaymentStatus(c *gin.Context) {
 // Helper methods
 
 func (ph *PaymentHandler) getUserFromService(userID uuid.UUID) (*models.User, error) {
-	// This would typically make an HTTP request to user service
-	// For now, return a mock user
+	// Make HTTP request to user service
+	url := fmt.Sprintf("%s/api/v1/users/%s", ph.userServiceURL, userID.String())
+	fmt.Printf("🔍 Making request to user service: %s\n", url)
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		fmt.Printf("❌ Failed to create request: %v\n", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	// Add headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	
+	// Make request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("❌ Failed to make request to user service: %v\n", err)
+		return nil, fmt.Errorf("failed to make request to user service: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	fmt.Printf("🔍 User service response status: %d\n", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		// Read response body for error details
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Printf("❌ User service error response: %s\n", string(body))
+		return nil, fmt.Errorf("user service returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	// Parse response
+	var userResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+			Email    string `json:"email"`
+		} `json:"data"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
+		return nil, fmt.Errorf("failed to decode user response: %w", err)
+	}
+	
+	if !userResp.Success {
+		return nil, fmt.Errorf("user service returned error")
+	}
+	
+	// Convert to our User model
+	userUUID, err := uuid.Parse(userResp.Data.ID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID format: %w", err)
+	}
+	
 	return &models.User{
-		ID:       userID,
-		Username: "testuser",
-		Email:    "test@example.com",
+		ID:       userUUID,
+		Username: userResp.Data.Username,
+		Email:    userResp.Data.Email,
 	}, nil
 }
 
 func (ph *PaymentHandler) getProductFromService(productID uuid.UUID) (*models.Product, error) {
-	// This would typically make an HTTP request to product service
-	// For now, return a mock product
+	// Make HTTP request to product service
+	url := fmt.Sprintf("%s/api/v1/products/%s", ph.productServiceURL, productID.String())
+	
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	// Add headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	
+	// Make request
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request to product service: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("product service returned status %d", resp.StatusCode)
+	}
+	
+	// Parse response
+	var productResp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			ID          string  `json:"id"`
+			Name        string  `json:"name"`
+			Description string  `json:"description"`
+			Price       float64 `json:"price"`
+			Stock       int     `json:"stock"`
+			IsActive    bool    `json:"is_active"`
+		} `json:"data"`
+	}
+	
+	if err := json.NewDecoder(resp.Body).Decode(&productResp); err != nil {
+		return nil, fmt.Errorf("failed to decode product response: %w", err)
+	}
+	
+	if !productResp.Success {
+		return nil, fmt.Errorf("product service returned error")
+	}
+	
+	// Convert to our Product model
+	productUUID, err := uuid.Parse(productResp.Data.ID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid product ID format: %w", err)
+	}
+	
 	return &models.Product{
-		ID:          productID,
-		Name:        "Test Product",
-		Description: "Test Product Description",
-		Price:       100000.0, // Make sure this is float64
-		Stock:       10,
-		IsActive:    true,
+		ID:          productUUID,
+		Name:        productResp.Data.Name,
+		Description: productResp.Data.Description,
+		Price:       productResp.Data.Price,
+		Stock:       productResp.Data.Stock,
+		IsActive:    productResp.Data.IsActive,
 	}, nil
 }
 

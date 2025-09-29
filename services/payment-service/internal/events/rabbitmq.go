@@ -84,6 +84,63 @@ type StockReductionEvent struct {
 	UserID    string `json:"user_id"`
 }
 
+// CheckoutInitEvent represents checkout initialization event
+type CheckoutInitEvent struct {
+	PaymentID     string `json:"payment_id"`
+	OrderID       string `json:"order_id"`
+	UserID        string `json:"user_id"`
+	ProductID     string `json:"product_id"`
+	Quantity      int    `json:"quantity"`
+	Amount        int64  `json:"amount"`
+	TotalAmount   int64  `json:"total_amount"`
+	PaymentMethod string `json:"payment_method"`
+}
+
+// ProductValidationResponse represents product validation response
+type ProductValidationResponse struct {
+	PaymentID string `json:"payment_id"`
+	OrderID   string `json:"order_id"`
+	ProductID string `json:"product_id"`
+	Status    string `json:"status"` // "PRODUCT_OK" or "OUT_OF_STOCK"
+	Message   string `json:"message,omitempty"`
+	Stock     int    `json:"stock,omitempty"`
+}
+
+// UserValidationResponse represents user validation response
+type UserValidationResponse struct {
+	PaymentID string `json:"payment_id"`
+	OrderID   string `json:"order_id"`
+	UserID    string `json:"user_id"`
+	Status    string `json:"status"` // "USER_OK" or "USER_INVALID"
+	Message   string `json:"message,omitempty"`
+}
+
+// OrderCompletedEvent represents order completion event
+type OrderCompletedEvent struct {
+	PaymentID     string `json:"payment_id"`
+	OrderID       string `json:"order_id"`
+	UserID        string `json:"user_id"`
+	ProductID     string `json:"product_id"`
+	Quantity      int    `json:"quantity"`
+	Amount        int64  `json:"amount"`
+	TotalAmount   int64  `json:"total_amount"`
+	PaymentMethod string `json:"payment_method"`
+	PaidAt        string `json:"paid_at"`
+}
+
+// OrderFailedEvent represents order failure event
+type OrderFailedEvent struct {
+	PaymentID     string `json:"payment_id"`
+	OrderID       string `json:"order_id"`
+	UserID        string `json:"user_id"`
+	ProductID     string `json:"product_id"`
+	Quantity      int    `json:"quantity"`
+	Amount        int64  `json:"amount"`
+	TotalAmount   int64  `json:"total_amount"`
+	PaymentMethod string `json:"payment_method"`
+	FailureReason string `json:"failure_reason"`
+}
+
 // NewEventService creates a new event service
 func NewEventService() (*EventService, error) {
 	// Load .env file
@@ -283,6 +340,86 @@ func (es *EventService) PublishStockReduction(productID uuid.UUID, quantity int,
 	return es.publishEvent("product.events", "product.stock.reduced", event)
 }
 
+// PublishCheckoutInit publishes checkout initialization event
+func (es *EventService) PublishCheckoutInit(paymentID, orderID, userID string, productID *uuid.UUID, quantity int, amount, totalAmount int64, paymentMethod string) error {
+	productIDStr := ""
+	if productID != nil {
+		productIDStr = productID.String()
+	}
+
+	event := Event{
+		Type:   "checkout.init",
+		UserID: userID,
+		Data: CheckoutInitEvent{
+			PaymentID:     paymentID,
+			OrderID:       orderID,
+			UserID:        userID,
+			ProductID:     productIDStr,
+			Quantity:      quantity,
+			Amount:        amount,
+			TotalAmount:   totalAmount,
+			PaymentMethod: paymentMethod,
+		},
+		Timestamp: time.Now().Unix(),
+	}
+
+	return es.publishEvent("payment.events", "checkout.init", event)
+}
+
+// PublishOrderCompleted publishes order completion event
+func (es *EventService) PublishOrderCompleted(paymentID, orderID, userID string, productID *uuid.UUID, quantity int, amount, totalAmount int64, paymentMethod string, paidAt time.Time) error {
+	productIDStr := ""
+	if productID != nil {
+		productIDStr = productID.String()
+	}
+
+	event := Event{
+		Type:   "order.completed",
+		UserID: userID,
+		Data: OrderCompletedEvent{
+			PaymentID:     paymentID,
+			OrderID:       orderID,
+			UserID:        userID,
+			ProductID:     productIDStr,
+			Quantity:      quantity,
+			Amount:        amount,
+			TotalAmount:   totalAmount,
+			PaymentMethod: paymentMethod,
+			PaidAt:        paidAt.Format(time.RFC3339),
+		},
+		Timestamp: time.Now().Unix(),
+	}
+
+	return es.publishEvent("payment.events", "order.completed", event)
+}
+
+// PublishOrderFailed publishes order failure event
+func (es *EventService) PublishOrderFailed(paymentID, orderID, userID string, productID *uuid.UUID, quantity int, amount, totalAmount int64, paymentMethod, failureReason string) error {
+	productIDStr := ""
+	if productID != nil {
+		productIDStr = productID.String()
+	}
+
+	event := Event{
+		Type:   "order.failed",
+		UserID: userID,
+		Data: OrderFailedEvent{
+			PaymentID:     paymentID,
+			OrderID:       orderID,
+			UserID:        userID,
+			ProductID:     productIDStr,
+			Quantity:      quantity,
+			Amount:        amount,
+			TotalAmount:   totalAmount,
+			PaymentMethod: paymentMethod,
+			FailureReason: failureReason,
+		},
+		Timestamp: time.Now().Unix(),
+	}
+
+	return es.publishEvent("payment.events", "order.failed", event)
+}
+
 // publishEvent publishes a generic event
 func (es *EventService) publishEvent(exchange, routingKey string, event Event) error {
 	// Marshal event to JSON
@@ -321,6 +458,11 @@ func (es *EventService) Close() error {
 		return es.conn.Close()
 	}
 	return nil
+}
+
+// GetChannel returns the RabbitMQ channel for consumers
+func (es *EventService) GetChannel() *amqp.Channel {
+	return es.channel
 }
 
 // HealthCheck checks if RabbitMQ connection is healthy

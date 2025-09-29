@@ -25,6 +25,11 @@ func NewProductRepository(db *gorm.DB, cache *cache.RedisClient) *ProductReposit
 	}
 }
 
+// GetDB returns the database instance for direct access
+func (r *ProductRepository) GetDB() *gorm.DB {
+	return r.db
+}
+
 // GetProducts retrieves products with pagination and caching
 func (r *ProductRepository) GetProducts(ctx context.Context, query models.ProductQuery) (*models.ProductListResponse, error) {
 	// Create cache key

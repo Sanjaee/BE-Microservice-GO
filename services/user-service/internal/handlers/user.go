@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
 )
@@ -334,6 +335,47 @@ func (uh *UserHandler) GetProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"user": user.ToResponse()})
+}
+
+// GetUserByID handles getting user by ID (for other services)
+func (uh *UserHandler) GetUserByID(c *gin.Context) {
+	userIDStr := c.Param("id")
+	
+	// Parse UUID
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid user ID format",
+		})
+		return
+	}
+
+	var user models.User
+	if err := uh.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			c.JSON(http.StatusNotFound, gin.H{
+				"success": false,
+				"error":   "User not found",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Database error",
+		})
+		return
+	}
+
+	// Return user data in the format expected by payment service
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"id":       user.ID.String(),
+			"username": user.Username,
+			"email":    user.Email,
+		},
+	})
 }
 
 // UpdateProfile handles updating user profile

@@ -194,6 +194,26 @@ func (es *EventService) PublishPasswordResetSuccess(userID, username, email stri
 	return es.publishEvent("password.reset.success", event)
 }
 
+// UserValidationResponse represents user validation response
+type UserValidationResponse struct {
+	PaymentID string `json:"payment_id"`
+	OrderID   string `json:"order_id"`
+	UserID    string `json:"user_id"`
+	Status    string `json:"status"` // "USER_OK" or "USER_INVALID"
+	Message   string `json:"message,omitempty"`
+}
+
+// PublishUserValidationResponse publishes user validation response
+func (es *EventService) PublishUserValidationResponse(response UserValidationResponse) error {
+	event := Event{
+		Type:   "user.validation.response",
+		UserID: response.UserID,
+		Data:   response,
+	}
+
+	return es.publishEvent("user.validation.response", event)
+}
+
 // publishEvent publishes a generic event
 func (es *EventService) publishEvent(routingKey string, event Event) error {
 	// Marshal event to JSON
@@ -230,6 +250,11 @@ func (es *EventService) Close() error {
 		return es.conn.Close()
 	}
 	return nil
+}
+
+// GetChannel returns the RabbitMQ channel for consumers
+func (es *EventService) GetChannel() *amqp.Channel {
+	return es.channel
 }
 
 // HealthCheck checks if RabbitMQ connection is healthy

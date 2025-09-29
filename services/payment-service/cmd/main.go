@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"payment-service/internal/cache"
+	"payment-service/internal/consumers"
 	"payment-service/internal/events"
 	"payment-service/internal/handlers"
 	"payment-service/internal/models"
@@ -111,6 +112,12 @@ func main() {
 	midtransSvc := services.NewMidtransService()
 	paymentRepo := repository.NewPaymentRepository(DB)
 
+	// Initialize validation consumer
+	validationConsumer := consumers.NewValidationConsumer(eventSvc, paymentRepo)
+	if err := validationConsumer.Start(); err != nil {
+		log.Fatalf("❌ Failed to start validation consumer: %v", err)
+	}
+
 	// Get service URLs from environment
 	userServiceURL := os.Getenv("USER_SERVICE_URL")
 	if userServiceURL == "" {
@@ -130,6 +137,7 @@ func main() {
 		cacheSvc,
 		userServiceURL,
 		productServiceURL,
+		validationConsumer,
 	)
 
 	// Initialize Gin router

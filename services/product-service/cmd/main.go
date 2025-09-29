@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"product-service/internal/cache"
+	"product-service/internal/consumers"
+	"product-service/internal/events"
 	"product-service/internal/handlers"
 	"product-service/internal/models"
 	"product-service/internal/repository"
@@ -125,6 +127,23 @@ func main() {
 	productHandler := handlers.NewProductHandler(productRepo, workerPool)
 	productHandler.UpdateWorkerPoolHandlers()
 	log.Println("✅ Product handlers initialized successfully!")
+
+	// Initialize RabbitMQ Event Service
+	log.Println("🐰 Initializing RabbitMQ event service...")
+	eventSvc, err := events.NewEventService()
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize RabbitMQ event service: %v", err)
+	}
+	defer eventSvc.Close()
+	log.Println("✅ RabbitMQ event service initialized successfully!")
+
+	// Initialize checkout consumer
+	log.Println("🛒 Initializing checkout consumer...")
+	checkoutConsumer := consumers.NewCheckoutConsumer(eventSvc, productRepo)
+	if err := checkoutConsumer.Start(); err != nil {
+		log.Fatalf("❌ Failed to start checkout consumer: %v", err)
+	}
+	log.Println("✅ Checkout consumer started successfully!")
 
 	// Setup Gin router
 	log.Println("🌐 Setting up HTTP server...")

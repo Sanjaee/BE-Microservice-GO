@@ -85,6 +85,7 @@ type Product struct {
 // CreatePaymentRequest represents the request payload for creating a payment
 type CreatePaymentRequest struct {
 	ProductID     *uuid.UUID    `json:"product_id" validate:"required"`
+	UserID        *string       `json:"user_id,omitempty"` // Optional, will be overridden by JWT if not provided
 	Amount        int64         `json:"amount" validate:"required,min=1"`
 	AdminFee      int64         `json:"admin_fee" validate:"min=0"`
 	PaymentMethod PaymentMethod `json:"payment_method" validate:"required,oneof=credit_card bank_transfer gopay qris shopeepay echannel permata cstore"`

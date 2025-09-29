@@ -15,12 +15,14 @@ import (
 	"user-service/internal/events"
 	"user-service/internal/handlers"
 	"user-service/internal/models"
+	"user-service/internal/repository"
 )
 
 var (
-	DB             *gorm.DB
-	EventService   *events.EventService
-	EmailConsumer  *consumers.EmailConsumer
+	DB                *gorm.DB
+	EventService      *events.EventService
+	EmailConsumer     *consumers.EmailConsumer
+	CheckoutConsumer  *consumers.CheckoutConsumer
 )
 
 func initDB() {
@@ -122,6 +124,24 @@ func initEmailConsumer() {
 	}
 }
 
+func initCheckoutConsumer() {
+	if EventService == nil {
+		log.Println("⚠️ RabbitMQ not available, skipping checkout consumer initialization")
+		return
+	}
+
+	// Create user repository
+	userRepo := repository.NewUserRepository(DB)
+	
+	// Initialize checkout consumer
+	CheckoutConsumer = consumers.NewCheckoutConsumer(EventService, userRepo)
+	if err := CheckoutConsumer.Start(); err != nil {
+		log.Printf("⚠️ Failed to start checkout consumer: %v", err)
+	} else {
+		log.Println("✅ Checkout consumer started successfully")
+	}
+}
+
 func setupRoutes() *gin.Engine {
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler(DB)
@@ -216,6 +236,12 @@ func setupRoutes() *gin.Engine {
 			protected.GET("/profile", userHandler.GetProfile)
 			protected.PUT("/profile", userHandler.UpdateProfile)
 		}
+
+		// Public routes for other services (no authentication required)
+		users := api.Group("/users")
+		{
+			users.GET("/:id", userHandler.GetUserByID)
+		}
 	}
 
 	return r
@@ -233,6 +259,9 @@ func main() {
 
 	// Initialize Email Consumer
 	initEmailConsumer()
+
+	// Initialize Checkout Consumer
+	initCheckoutConsumer()
 
 	// Setup routes
 	r := setupRoutes()
