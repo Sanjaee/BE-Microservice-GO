@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"time"
@@ -16,11 +17,12 @@ import (
 
 // MidtransService handles Midtrans payment operations
 type MidtransService struct {
-	serverKey    string
-	clientKey    string
-	baseURL      string
-	httpClient   *http.Client
-	environment  string
+	serverKey      string
+	clientKey      string
+	baseURL        string
+	httpClient     *http.Client
+	environment    string
+	authHeader     string // Cached authorization header
 }
 
 // MidtransChargeRequest represents the charge request to Midtrans
@@ -34,6 +36,8 @@ type MidtransChargeRequest struct {
 	GoPay              *GoPayDetails          `json:"gopay,omitempty"`
 	QRIS               *QRISDetails           `json:"qris,omitempty"`
 	ShopeePay          *ShopeePayDetails      `json:"shopeepay,omitempty"`
+	Echannel           *EchannelDetails       `json:"echannel,omitempty"`
+	Cstore             *CstoreDetails         `json:"cstore,omitempty"`
 }
 
 // TransactionDetails represents transaction details
@@ -84,6 +88,21 @@ type QRISDetails struct {
 // ShopeePayDetails represents ShopeePay details
 type ShopeePayDetails struct {
 	CallbackURL string `json:"callback_url,omitempty"`
+}
+
+// EchannelDetails represents Echannel details
+type EchannelDetails struct {
+	BillInfo1 string `json:"bill_info1,omitempty"`
+	BillInfo2 string `json:"bill_info2,omitempty"`
+}
+
+// CstoreDetails represents Cstore details
+type CstoreDetails struct {
+	Store                 string `json:"store"`
+	Message               string `json:"message,omitempty"`
+	AlfamartFreeText1     string `json:"alfamart_free_text_1,omitempty"`
+	AlfamartFreeText2     string `json:"alfamart_free_text_2,omitempty"`
+	AlfamartFreeText3     string `json:"alfamart_free_text_3,omitempty"`
 }
 
 // MidtransChargeResponse represents the response from Midtrans charge API
@@ -172,13 +191,27 @@ func NewMidtransService() *MidtransService {
 	fmt.Printf("🔧 Midtrans Config - Environment: %s, BaseURL: %s\n", environment, baseURL)
 	fmt.Printf("🔧 Server Key: %s...\n", serverKey[:20])
 
+	// Create optimized HTTP client with connection pooling
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false,
+		DisableCompression:  false,
+	}
+
+	// Pre-compute authorization header for better performance
+	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte(serverKey+":"))
+
 	return &MidtransService{
 		serverKey:   serverKey,
 		clientKey:   clientKey,
 		baseURL:     baseURL,
 		environment: environment,
+		authHeader:  authHeader,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   60 * time.Second, // Increased timeout
+			Transport: transport,
 		},
 	}
 }
@@ -188,17 +221,15 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 	// Map payment method to Midtrans payment type
 	paymentType := string(payment.PaymentMethod)
 	
-	// Special mapping for GoPay to QRIS (like in the working example)
-	if payment.PaymentMethod == models.PaymentMethodGoPay {
-		paymentType = "qris"
-	}
+	// GoPay uses "gopay" payment type directly (not qris)
+	// This matches the curl example: "payment_type": "gopay"
 
 	// Prepare charge request
 	chargeReq := MidtransChargeRequest{
 		PaymentType: paymentType,
 		TransactionDetails: TransactionDetails{
 			OrderID:     payment.OrderID,
-			GrossAmount: payment.TotalAmount,
+			GrossAmount: payment.TotalAmount, // Midtrans expects amount in rupiah (not cents)
 		},
 		CustomerDetails: CustomerDetails{
 			FirstName: user.Username,
@@ -207,7 +238,7 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 		ItemDetails: []ItemDetails{
 			{
 				ID:       product.ID.String(),
-				Price:    payment.Amount,
+				Price:    payment.Amount, // Amount in rupiah (Midtrans expects rupiah, not cents)
 				Quantity: 1,
 				Name:     product.Name,
 				Category: "product",
@@ -219,7 +250,7 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 	if payment.AdminFee > 0 {
 		chargeReq.ItemDetails = append(chargeReq.ItemDetails, ItemDetails{
 			ID:       "admin_fee",
-			Price:    payment.AdminFee,
+			Price:    payment.AdminFee, // Admin fee in rupiah (Midtrans expects rupiah, not cents)
 			Quantity: 1,
 			Name:     "Admin Fee",
 			Category: "fee",
@@ -229,7 +260,7 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 	// Add payment method specific details
 	switch payment.PaymentMethod {
 	case models.PaymentMethodBankTransfer:
-		bankType := "bca"
+		bankType := "bni" // Default to BNI instead of BCA
 		if payment.BankType != nil {
 			bankType = *payment.BankType
 		}
@@ -244,7 +275,8 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 		}
 
 	case models.PaymentMethodGoPay:
-		// For GoPay, we use QRIS payment type but still include GoPay details
+		// GoPay implementation matches curl example
+		// No additional details needed for basic GoPay payment
 		chargeReq.GoPay = &GoPayDetails{
 			EnableCallback: true,
 			CallbackURL:    ms.getCallbackURL(),
@@ -257,6 +289,37 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 		chargeReq.ShopeePay = &ShopeePayDetails{
 			CallbackURL: ms.getCallbackURL(),
 		}
+
+	case models.PaymentMethodEchannel:
+		chargeReq.Echannel = &EchannelDetails{
+			BillInfo1: "Payment:",
+			BillInfo2: "Online purchase",
+		}
+
+	case models.PaymentMethodPermata:
+		// Permata doesn't need additional details
+		// Payment type is already set to "permata"
+
+	case models.PaymentMethodCstore:
+		storeType := "alfamart" // Default to alfamart
+		if payment.StoreType != nil {
+			storeType = *payment.StoreType
+		}
+		
+		if storeType == "alfamart" {
+			chargeReq.Cstore = &CstoreDetails{
+				Store:             "alfamart",
+				Message:           "Payment for online purchase",
+				AlfamartFreeText1: "1st row of receipt,",
+				AlfamartFreeText2: "This is the 2nd row,",
+				AlfamartFreeText3: "3rd row. The end.",
+			}
+		} else if storeType == "indomaret" {
+			chargeReq.Cstore = &CstoreDetails{
+				Store:   "indomaret",
+				Message: "Message to display",
+			}
+		}
 	}
 
 	// Make request to Midtrans
@@ -268,41 +331,79 @@ func (ms *MidtransService) CreatePayment(payment *models.Payment, user *models.U
 	return response, nil
 }
 
-// GetPaymentStatus gets payment status from Midtrans
+// GetPaymentStatus gets payment status from Midtrans with retry mechanism
 func (ms *MidtransService) GetPaymentStatus(orderID string) (*MidtransStatusResponse, error) {
 	url := fmt.Sprintf("%s/%s/status", ms.baseURL, orderID)
 
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// Retry mechanism with exponential backoff
+	maxRetries := 3
+	baseDelay := 1 * time.Second
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Add authorization header (pre-computed for better performance)
+		req.Header.Set("Authorization", ms.authHeader)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "Payment-Service/1.0")
+
+		resp, err := ms.httpClient.Do(req)
+		if err != nil {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("failed to make request after %d attempts: %w", maxRetries+1, err)
+			}
+			
+			// Exponential backoff
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ Status request failed (attempt %d/%d), retrying in %v: %v\n", attempt+1, maxRetries+1, delay, err)
+			time.Sleep(delay)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		
+		if err != nil {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("failed to read response: %w", err)
+			}
+			
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ Failed to read status response (attempt %d/%d), retrying in %v: %v\n", attempt+1, maxRetries+1, delay, err)
+			time.Sleep(delay)
+			continue
+		}
+
+		// Handle different status codes
+		if resp.StatusCode == http.StatusOK {
+			var statusResp MidtransStatusResponse
+			if err := json.Unmarshal(body, &statusResp); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+			}
+			return &statusResp, nil
+		}
+
+		// Handle retryable errors (5xx and some 4xx)
+		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("Midtrans API error (Status %d): %s", resp.StatusCode, string(body))
+			}
+			
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ Status API error %d (attempt %d/%d), retrying in %v: %s\n", resp.StatusCode, attempt+1, maxRetries+1, delay, string(body))
+			time.Sleep(delay)
+			continue
+		}
+
+		// Non-retryable errors
+		return nil, fmt.Errorf("Midtrans API error (Status %d): %s", resp.StatusCode, string(body))
 	}
 
-	// Add authorization header
-	auth := base64.StdEncoding.EncodeToString([]byte(ms.serverKey + ":"))
-	req.Header.Set("Authorization", "Basic "+auth)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := ms.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Midtrans API error: %s", string(body))
-	}
-
-	var statusResp MidtransStatusResponse
-	if err := json.Unmarshal(body, &statusResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	return &statusResp, nil
+	return nil, fmt.Errorf("unexpected error: max retries exceeded")
 }
 
 // VerifySignature verifies Midtrans callback signature
@@ -335,7 +436,7 @@ func (ms *MidtransService) MapMidtransStatusToPaymentStatus(midtransStatus strin
 	}
 }
 
-// charge makes a charge request to Midtrans
+// charge makes a charge request to Midtrans with retry mechanism
 func (ms *MidtransService) charge(chargeReq MidtransChargeRequest) (*MidtransChargeResponse, error) {
 	url := ms.baseURL + "/charge"
 
@@ -347,40 +448,88 @@ func (ms *MidtransService) charge(chargeReq MidtransChargeRequest) (*MidtransCha
 	// Log the request for debugging
 	fmt.Printf("🔍 Midtrans Request: %s\n", string(jsonData))
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
+	// Retry mechanism with exponential backoff
+	maxRetries := 3
+	baseDelay := 1 * time.Second
 
-	// Add authorization header
-	auth := base64.StdEncoding.EncodeToString([]byte(ms.serverKey + ":"))
-	req.Header.Set("Authorization", "Basic "+auth)
-	req.Header.Set("Content-Type", "application/json")
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
 
-	resp, err := ms.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
+		// Add authorization header (pre-computed for better performance)
+		req.Header.Set("Authorization", ms.authHeader)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "Payment-Service/1.0")
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
+		resp, err := ms.httpClient.Do(req)
+		if err != nil {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("failed to make request after %d attempts: %w", maxRetries+1, err)
+			}
+			
+			// Exponential backoff
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ Request failed (attempt %d/%d), retrying in %v: %v\n", attempt+1, maxRetries+1, delay, err)
+			time.Sleep(delay)
+			continue
+		}
 
-	// Log the response for debugging
-	fmt.Printf("🔍 Midtrans Response: %s\n", string(body))
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		
+		if err != nil {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("failed to read response: %w", err)
+			}
+			
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ Failed to read response (attempt %d/%d), retrying in %v: %v\n", attempt+1, maxRetries+1, delay, err)
+			time.Sleep(delay)
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
+		// Log the response for debugging
+		fmt.Printf("🔍 Midtrans Response (Status %d): %s\n", resp.StatusCode, string(body))
+
+		// Handle different status codes
+		if resp.StatusCode == http.StatusOK {
+			var chargeResp MidtransChargeResponse
+			if err := json.Unmarshal(body, &chargeResp); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+			}
+			
+			// Log parsed response data for debugging
+			fmt.Printf("🔍 Parsed Midtrans Response - PaymentCode: '%s', VANumbers: %+v, PaymentType: '%s'\n", 
+				chargeResp.PaymentCode, chargeResp.VANumbers, chargeResp.PaymentType)
+			
+			// Check if Midtrans returned an error in the response body
+			if chargeResp.StatusCode == "505" || chargeResp.StatusCode == "500" || chargeResp.StatusCode == "400" || chargeResp.StatusCode == "401" {
+				return nil, fmt.Errorf("Midtrans API error (Status %s): %s", chargeResp.StatusCode, chargeResp.StatusMessage)
+			}
+			
+			return &chargeResp, nil
+		}
+
+		// Handle retryable errors (5xx and some 4xx)
+		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+			if attempt == maxRetries {
+				return nil, fmt.Errorf("Midtrans API error (Status %d): %s", resp.StatusCode, string(body))
+			}
+			
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			fmt.Printf("⚠️ API error %d (attempt %d/%d), retrying in %v: %s\n", resp.StatusCode, attempt+1, maxRetries+1, delay, string(body))
+			time.Sleep(delay)
+			continue
+		}
+
+		// Non-retryable errors
 		return nil, fmt.Errorf("Midtrans API error (Status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var chargeResp MidtransChargeResponse
-	if err := json.Unmarshal(body, &chargeResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	return &chargeResp, nil
+	return nil, fmt.Errorf("unexpected error: max retries exceeded")
 }
 
 // getCallbackURL returns the callback URL for webhooks

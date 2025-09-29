@@ -27,6 +27,9 @@ const (
 	PaymentMethodGoPay        PaymentMethod = "gopay"
 	PaymentMethodQRIS         PaymentMethod = "qris"
 	PaymentMethodShopeepay    PaymentMethod = "shopeepay"
+	PaymentMethodEchannel     PaymentMethod = "echannel"
+	PaymentMethodPermata      PaymentMethod = "permata"
+	PaymentMethodCstore       PaymentMethod = "cstore"
 )
 
 // Payment represents the payment model in the database
@@ -35,9 +38,9 @@ type Payment struct {
 	OrderID               string         `json:"order_id" gorm:"uniqueIndex;not null"`
 	UserID                uuid.UUID      `json:"user_id" gorm:"type:uuid;not null"`
 	ProductID             *uuid.UUID     `json:"product_id" gorm:"type:uuid"`
-	Amount                int64          `json:"amount" gorm:"not null"` // Amount in cents
-	AdminFee              int64          `json:"admin_fee" gorm:"default:0"` // Admin fee in cents
-	TotalAmount           int64          `json:"total_amount" gorm:"not null"` // Total amount in cents
+	Amount                int64          `json:"amount" gorm:"not null"` // Amount in rupiah
+	AdminFee              int64          `json:"admin_fee" gorm:"default:0"` // Admin fee in rupiah
+	TotalAmount           int64          `json:"total_amount" gorm:"not null"` // Total amount in rupiah
 	PaymentMethod         PaymentMethod  `json:"payment_method" gorm:"not null"`
 	PaymentType           string         `json:"payment_type"` // qris, bank_transfer, credit_card, etc
 	Status                PaymentStatus  `json:"status" gorm:"default:'PENDING'"`
@@ -49,6 +52,7 @@ type Payment struct {
 	PaymentCode           *string        `json:"payment_code"` // untuk bank transfer
 	VANumber              *string        `json:"va_number"`    // untuk virtual account
 	BankType              *string        `json:"bank_type"`    // mandiri, bca, bni, etc
+	StoreType             *string        `json:"store_type"`   // alfamart, indomaret, etc
 	ExpiryTime            *time.Time     `json:"expiry_time"`
 	PaidAt                *time.Time     `json:"paid_at"`
 	MidtransResponse      *string        `json:"midtrans_response"` // JSON response from Midtrans
@@ -83,8 +87,9 @@ type CreatePaymentRequest struct {
 	ProductID     *uuid.UUID    `json:"product_id" validate:"required"`
 	Amount        int64         `json:"amount" validate:"required,min=1"`
 	AdminFee      int64         `json:"admin_fee" validate:"min=0"`
-	PaymentMethod PaymentMethod `json:"payment_method" validate:"required,oneof=credit_card bank_transfer gopay qris shopeepay"`
+	PaymentMethod PaymentMethod `json:"payment_method" validate:"required,oneof=credit_card bank_transfer gopay qris shopeepay echannel permata cstore"`
 	BankType      *string       `json:"bank_type,omitempty"` // For bank transfer
+	StoreType     *string       `json:"store_type,omitempty"` // For cstore (alfamart, indomaret)
 	Notes         *string       `json:"notes,omitempty"`
 }
 
@@ -108,6 +113,7 @@ type PaymentResponse struct {
 	PaymentCode           *string        `json:"payment_code"`
 	VANumber              *string        `json:"va_number"`
 	BankType              *string        `json:"bank_type"`
+	StoreType             *string        `json:"store_type"`
 	ExpiryTime            *time.Time     `json:"expiry_time"`
 	PaidAt                *time.Time     `json:"paid_at"`
 	CreatedAt             time.Time      `json:"created_at"`
@@ -185,6 +191,7 @@ func (p *Payment) ToResponse() PaymentResponse {
 		PaymentCode:           p.PaymentCode,
 		VANumber:              p.VANumber,
 		BankType:              p.BankType,
+		StoreType:             p.StoreType,
 		ExpiryTime:            p.ExpiryTime,
 		PaidAt:                p.PaidAt,
 		CreatedAt:             p.CreatedAt,

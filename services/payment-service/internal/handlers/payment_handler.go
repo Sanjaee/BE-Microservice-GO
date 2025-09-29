@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"payment-service/internal/cache"
@@ -113,7 +114,7 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// Calculate total amount (ensure amounts are in cents)
+	// Calculate total amount (amounts are in rupiah)
 	totalAmount := req.Amount + req.AdminFee
 
 	// Generate order ID
@@ -135,27 +136,40 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		PaymentType:   "midtrans",
 		Status:        models.PaymentStatusPending,
 		Notes:         req.Notes,
+		BankType:      req.BankType,  // Store bank type for bank transfer payments
+		StoreType:     req.StoreType, // Store store type for cstore payments
 	}
 
-	// Save payment to database
+	// Create payment with Midtrans first (before saving to database)
+	midtransResp, err := ph.midtransSvc.CreatePayment(payment, user, product)
+	if err != nil {
+		// Check if it's a 505 or 500 error from Midtrans (VA number creation failed or system issues)
+		if strings.Contains(err.Error(), "505") || 
+		   strings.Contains(err.Error(), "500") ||
+		   strings.Contains(err.Error(), "Unable to create va_number") ||
+		   strings.Contains(err.Error(), "system is recovering") ||
+		   strings.Contains(err.Error(), "service unavailable") {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"success": false,
+				"error":   "Payment method temporarily unavailable",
+				"message": "Metode pembayaran sedang maintenance, silakan pilih metode lain (BNI, BCA, BRI, Mandiri, GoPay, QRIS, atau Credit Card)",
+				"details": err.Error(),
+			})
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "Failed to create payment with Midtrans",
+				"details": err.Error(),
+			})
+		}
+		return
+	}
+
+	// Save payment to database only after successful Midtrans response
 	if err := ph.paymentRepo.Create(payment); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "Failed to create payment",
-		})
-		return
-	}
-
-	// Create payment with Midtrans
-	midtransResp, err := ph.midtransSvc.CreatePayment(payment, user, product)
-	if err != nil {
-		// Update payment status to failed
-		ph.paymentRepo.UpdateStatus(payment.ID, models.PaymentStatusFailed)
-		
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"error":   "Failed to create payment with Midtrans",
-			"details": err.Error(),
 		})
 		return
 	}
@@ -173,10 +187,21 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 	if len(midtransResp.VANumbers) > 0 {
 		midtransData["va_number"] = midtransResp.VANumbers[0].VANumber
 		midtransData["bank_type"] = midtransResp.VANumbers[0].Bank
+		fmt.Printf("🔍 Storing VA Number: %s, Bank: %s\n", midtransResp.VANumbers[0].VANumber, midtransResp.VANumbers[0].Bank)
+	} else {
+		fmt.Printf("⚠️ No VA Numbers found in Midtrans response\n")
 	}
 
 	if midtransResp.PaymentCode != "" {
 		midtransData["payment_code"] = midtransResp.PaymentCode
+		fmt.Printf("🔍 Storing Payment Code: %s\n", midtransResp.PaymentCode)
+		// For cstore payments, also store payment_code as va_number for easier copying
+		if payment.PaymentMethod == models.PaymentMethodCstore {
+			midtransData["va_number"] = midtransResp.PaymentCode
+			fmt.Printf("🔍 Storing Payment Code as VA Number for cstore: %s\n", midtransResp.PaymentCode)
+		}
+	} else {
+		fmt.Printf("⚠️ No Payment Code found in Midtrans response\n")
 	}
 
 	if midtransResp.PermataVANumber != "" {
@@ -185,14 +210,40 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 	}
 
 	if midtransResp.ExpiryTime != "" {
-		if expiryTime, err := time.Parse(time.RFC3339, midtransResp.ExpiryTime); err == nil {
-			midtransData["expiry_time"] = expiryTime
+		// Try different time formats from Midtrans
+		timeFormats := []string{
+			time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02 15:04:05",          // "2025-09-29 20:47:00"
+			"2006-01-02T15:04:05",          // "2025-09-29T20:47:00"
+		}
+		
+		var expiryTime time.Time
+		var err error
+		for _, format := range timeFormats {
+			expiryTime, err = time.Parse(format, midtransResp.ExpiryTime)
+			if err == nil {
+				midtransData["expiry_time"] = expiryTime
+				break
+			}
 		}
 	}
 
 	if midtransResp.PaidAt != "" {
-		if paidAt, err := time.Parse(time.RFC3339, midtransResp.PaidAt); err == nil {
-			midtransData["paid_at"] = paidAt
+		// Try different time formats from Midtrans
+		timeFormats := []string{
+			time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02 15:04:05",          // "2025-09-29 20:47:00"
+			"2006-01-02T15:04:05",          // "2025-09-29T20:47:00"
+		}
+		
+		var paidAt time.Time
+		var err error
+		for _, format := range timeFormats {
+			paidAt, err = time.Parse(format, midtransResp.PaidAt)
+			if err == nil {
+				midtransData["paid_at"] = paidAt
+				break
+			}
 		}
 	}
 
@@ -204,16 +255,30 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 		}
 	}
 
+	// Log the data being saved
+	fmt.Printf("🔍 Updating payment with Midtrans data: %+v\n", midtransData)
+	
 	if err := ph.paymentRepo.UpdateMidtransData(payment.ID, midtransData); err != nil {
+		fmt.Printf("❌ Failed to update payment with Midtrans data: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "Failed to update payment with Midtrans data",
 		})
 		return
 	}
+	
+	fmt.Printf("✅ Successfully updated payment with Midtrans data\n")
+
+	// Wait for VA number to be saved in database with retry mechanism
+	updatedPayment, err := ph.waitForPaymentData(payment.ID, 5, 1*time.Second)
+	if err != nil {
+		fmt.Printf("⚠️ Failed to get updated payment data after retries: %v\n", err)
+		// Fallback to original payment data
+		updatedPayment = payment
+	}
 
 	// Cache payment data
-	paymentResponse := payment.ToResponse()
+	paymentResponse := updatedPayment.ToResponse()
 	paymentResponse.Actions = ph.convertMidtransActions(midtransResp.Actions)
 	
 	ph.cacheSvc.SetPayment(payment.ID.String(), paymentResponse, 1*time.Hour)
@@ -234,20 +299,21 @@ func (ph *PaymentHandler) CreatePayment(c *gin.Context) {
 	// Invalidate user payments cache
 	ph.cacheSvc.DeleteUserPayments(payment.UserID.String())
 
+	// Use updated payment data for response
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"payment_id":     payment.ID,
-			"order_id":       payment.OrderID,
-			"amount":         payment.TotalAmount,
-			"payment_method": payment.PaymentMethod,
-			"status":         payment.Status,
+			"payment_id":     updatedPayment.ID,
+			"order_id":       updatedPayment.OrderID,
+			"amount":         updatedPayment.TotalAmount,
+			"payment_method": updatedPayment.PaymentMethod,
+			"status":         updatedPayment.Status,
 			"actions":        midtransResp.Actions,
-			"va_number":      midtransData["va_number"],
-			"bank_type":      midtransData["bank_type"],
-			"payment_code":   midtransData["payment_code"],
-			"expiry_time":    midtransData["expiry_time"],
-			"redirect_url":   midtransData["snap_redirect_url"],
+			"va_number":      updatedPayment.VANumber,
+			"bank_type":      updatedPayment.BankType,
+			"payment_code":   updatedPayment.PaymentCode,
+			"expiry_time":    updatedPayment.ExpiryTime,
+			"redirect_url":   updatedPayment.SnapRedirectURL,
 		},
 	})
 }
@@ -493,6 +559,10 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 
 	if statusResp.PaymentCode != "" {
 		midtransData["payment_code"] = statusResp.PaymentCode
+		// For cstore payments, also store payment_code as va_number for easier copying
+		if payment.PaymentMethod == models.PaymentMethodCstore {
+			midtransData["va_number"] = statusResp.PaymentCode
+		}
 	}
 
 	if statusResp.PermataVANumber != "" {
@@ -501,14 +571,40 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	}
 
 	if statusResp.ExpiryTime != "" {
-		if expiryTime, err := time.Parse(time.RFC3339, statusResp.ExpiryTime); err == nil {
-			midtransData["expiry_time"] = expiryTime
+		// Try different time formats from Midtrans
+		timeFormats := []string{
+			time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02 15:04:05",          // "2025-09-29 20:47:00"
+			"2006-01-02T15:04:05",          // "2025-09-29T20:47:00"
+		}
+		
+		var expiryTime time.Time
+		var err error
+		for _, format := range timeFormats {
+			expiryTime, err = time.Parse(format, statusResp.ExpiryTime)
+			if err == nil {
+				midtransData["expiry_time"] = expiryTime
+				break
+			}
 		}
 	}
 
 	if statusResp.PaidAt != "" {
-		if paidAt, err := time.Parse(time.RFC3339, statusResp.PaidAt); err == nil {
-			midtransData["paid_at"] = paidAt
+		// Try different time formats from Midtrans
+		timeFormats := []string{
+			time.RFC3339,                    // "2006-01-02T15:04:05Z07:00"
+			"2006-01-02 15:04:05",          // "2025-09-29 20:47:00"
+			"2006-01-02T15:04:05",          // "2025-09-29T20:47:00"
+		}
+		
+		var paidAt time.Time
+		var err error
+		for _, format := range timeFormats {
+			paidAt, err = time.Parse(format, statusResp.PaidAt)
+			if err == nil {
+				midtransData["paid_at"] = paidAt
+				break
+			}
 		}
 	}
 
@@ -624,4 +720,53 @@ func (ph *PaymentHandler) convertMidtransActions(actions []services.MidtransActi
 		}
 	}
 	return result
+}
+
+// waitForPaymentData waits for payment data to be saved in database
+func (ph *PaymentHandler) waitForPaymentData(paymentID uuid.UUID, maxRetries int, delay time.Duration) (*models.Payment, error) {
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		payment, err := ph.paymentRepo.GetByIDWithoutRelations(paymentID)
+		if err != nil {
+			fmt.Printf("⚠️ Attempt %d: Failed to get payment data: %v\n", attempt+1, err)
+			if attempt < maxRetries-1 {
+				time.Sleep(delay)
+				continue
+			}
+			return nil, err
+		}
+
+		// Check if VA number or payment code is available based on payment method
+		hasRequiredData := false
+		switch payment.PaymentMethod {
+		case models.PaymentMethodBankTransfer, models.PaymentMethodPermata:
+			// For bank transfer, check if VA number exists
+			if payment.VANumber != nil && *payment.VANumber != "" {
+				hasRequiredData = true
+				fmt.Printf("✅ VA Number found: %s\n", *payment.VANumber)
+			}
+		case models.PaymentMethodCstore:
+			// For cstore, check if payment code exists
+			if payment.PaymentCode != nil && *payment.PaymentCode != "" {
+				hasRequiredData = true
+				fmt.Printf("✅ Payment Code found: %s\n", *payment.PaymentCode)
+			}
+		case models.PaymentMethodGoPay, models.PaymentMethodQRIS, models.PaymentMethodCreditCard:
+			// For these methods, we don't need to wait for specific data
+			hasRequiredData = true
+		default:
+			hasRequiredData = true
+		}
+
+		if hasRequiredData {
+			fmt.Printf("✅ Payment data is ready for response\n")
+			return payment, nil
+		}
+
+		fmt.Printf("⏳ Attempt %d: Payment data not ready yet, retrying...\n", attempt+1)
+		if attempt < maxRetries-1 {
+			time.Sleep(delay)
+		}
+	}
+
+	return nil, fmt.Errorf("payment data not ready after %d attempts", maxRetries)
 }

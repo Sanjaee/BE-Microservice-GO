@@ -40,6 +40,18 @@ func (pr *PaymentRepository) GetByID(id uuid.UUID) (*models.Payment, error) {
 	return &payment, nil
 }
 
+// GetByIDWithoutRelations retrieves a payment by ID without loading relations
+func (pr *PaymentRepository) GetByIDWithoutRelations(id uuid.UUID) (*models.Payment, error) {
+	var payment models.Payment
+	if err := pr.db.First(&payment, "id = ?", id).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("payment not found")
+		}
+		return nil, fmt.Errorf("failed to get payment: %w", err)
+	}
+	return &payment, nil
+}
+
 // GetByOrderID retrieves a payment by order ID
 func (pr *PaymentRepository) GetByOrderID(orderID string) (*models.Payment, error) {
 	var payment models.Payment
@@ -178,6 +190,8 @@ func (pr *PaymentRepository) UpdateStatus(id uuid.UUID, status models.PaymentSta
 
 // UpdateMidtransData updates Midtrans-related fields
 func (pr *PaymentRepository) UpdateMidtransData(id uuid.UUID, midtransData map[string]interface{}) error {
+	fmt.Printf("🔍 UpdateMidtransData called with ID: %s, Data: %+v\n", id.String(), midtransData)
+	
 	updates := map[string]interface{}{
 		"updated_at": time.Now(),
 	}
@@ -194,9 +208,15 @@ func (pr *PaymentRepository) UpdateMidtransData(id uuid.UUID, midtransData map[s
 	}
 	if paymentCode, ok := midtransData["payment_code"].(string); ok {
 		updates["payment_code"] = paymentCode
+		fmt.Printf("🔍 Storing Payment Code in DB: %s\n", paymentCode)
+	} else {
+		fmt.Printf("⚠️ Payment Code not found or not a string: %v\n", midtransData["payment_code"])
 	}
 	if vaNumber, ok := midtransData["va_number"].(string); ok {
 		updates["va_number"] = vaNumber
+		fmt.Printf("🔍 Storing VA Number in DB: %s\n", vaNumber)
+	} else {
+		fmt.Printf("⚠️ VA Number not found or not a string: %v\n", midtransData["va_number"])
 	}
 	if bankType, ok := midtransData["bank_type"].(string); ok {
 		updates["bank_type"] = bankType
@@ -217,9 +237,14 @@ func (pr *PaymentRepository) UpdateMidtransData(id uuid.UUID, midtransData map[s
 		updates["snap_redirect_url"] = snapRedirectURL
 	}
 
+	fmt.Printf("🔍 Final updates to save: %+v\n", updates)
+	
 	if err := pr.db.Model(&models.Payment{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		fmt.Printf("❌ Failed to update Midtrans data: %v\n", err)
 		return fmt.Errorf("failed to update Midtrans data: %w", err)
 	}
+	
+	fmt.Printf("✅ Successfully updated Midtrans data in database\n")
 	return nil
 }
 
