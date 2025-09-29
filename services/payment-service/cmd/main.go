@@ -213,6 +213,7 @@ func main() {
 			// protected.Use(authMiddleware()) // Add auth middleware here
 			{
 				protected.POST("", paymentHandler.CreatePayment)
+				protected.GET("/:id/check-status", paymentHandler.CheckPaymentStatus)
 				protected.GET("/:id", paymentHandler.GetPayment)
 				protected.GET("/order/:order_id", paymentHandler.GetPaymentByOrderID)
 				protected.GET("/user", paymentHandler.GetUserPayments)
@@ -230,6 +231,7 @@ func main() {
 	log.Printf("📚 Available endpoints:")
 	log.Printf("  POST /api/v1/payments              - Create payment")
 	log.Printf("  GET  /api/v1/payments/:id          - Get payment by ID")
+	log.Printf("  GET  /api/v1/payments/:id/check-status - Check payment status from Midtrans")
 	log.Printf("  GET  /api/v1/payments/order/:id    - Get payment by order ID")
 	log.Printf("  GET  /api/v1/payments/user         - Get user payments")
 	log.Printf("  GET  /api/v1/payments/config       - Get Midtrans config")

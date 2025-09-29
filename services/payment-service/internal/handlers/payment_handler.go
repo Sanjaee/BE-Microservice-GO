@@ -493,6 +493,7 @@ func (ph *PaymentHandler) GetUserPayments(c *gin.Context) {
 func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	var req models.MidtransCallbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Printf("❌ Invalid callback format: %v\n", err)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   "Invalid callback format",
@@ -500,8 +501,12 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 		return
 	}
 
+	// Log callback received
+	fmt.Printf("📞 Midtrans callback received for order: %s, status: %s\n", req.OrderID, req.TransactionStatus)
+
 	// Verify signature
 	if !ph.midtransSvc.VerifySignature(req.OrderID, req.StatusCode, req.GrossAmount, req.SignatureKey) {
+		fmt.Printf("❌ Invalid signature for order: %s\n", req.OrderID)
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   "Invalid signature",
@@ -512,6 +517,7 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	// Get payment from database
 	payment, err := ph.paymentRepo.GetByOrderID(req.OrderID)
 	if err != nil {
+		fmt.Printf("❌ Payment not found for order: %s, error: %v\n", req.OrderID, err)
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error":   "Payment not found",
@@ -519,9 +525,24 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 		return
 	}
 
-	// Get detailed status from Midtrans
-	statusResp, err := ph.midtransSvc.GetPaymentStatus(req.OrderID)
+	fmt.Printf("🔍 Found payment: %s, current status: %s\n", payment.ID.String(), payment.Status)
+
+	// Get detailed status from Midtrans with retry mechanism
+	var statusResp *services.MidtransStatusResponse
+	maxRetries := 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		statusResp, err = ph.midtransSvc.GetPaymentStatus(req.OrderID)
+		if err == nil {
+			break
+		}
+		fmt.Printf("⚠️ Attempt %d: Failed to get payment status from Midtrans: %v\n", attempt+1, err)
+		if attempt < maxRetries-1 {
+			time.Sleep(time.Duration(attempt+1) * time.Second)
+		}
+	}
+
 	if err != nil {
+		fmt.Printf("❌ Failed to get payment status from Midtrans after %d attempts: %v\n", maxRetries, err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "Failed to get payment status from Midtrans",
@@ -533,8 +554,11 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	newStatus := ph.midtransSvc.MapMidtransStatusToPaymentStatus(statusResp.TransactionStatus)
 	oldStatus := payment.Status
 
+	fmt.Printf("🔄 Status change: %s -> %s (Midtrans: %s)\n", oldStatus, newStatus, statusResp.TransactionStatus)
+
 	// Update payment status
 	if err := ph.paymentRepo.UpdateStatus(payment.ID, newStatus); err != nil {
+		fmt.Printf("❌ Failed to update payment status: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   "Failed to update payment status",
@@ -555,10 +579,12 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	if len(statusResp.VANumbers) > 0 {
 		midtransData["va_number"] = statusResp.VANumbers[0].VANumber
 		midtransData["bank_type"] = statusResp.VANumbers[0].Bank
+		fmt.Printf("🔍 Updated VA Number: %s, Bank: %s\n", statusResp.VANumbers[0].VANumber, statusResp.VANumbers[0].Bank)
 	}
 
 	if statusResp.PaymentCode != "" {
 		midtransData["payment_code"] = statusResp.PaymentCode
+		fmt.Printf("🔍 Updated Payment Code: %s\n", statusResp.PaymentCode)
 		// For cstore payments, also store payment_code as va_number for easier copying
 		if payment.PaymentMethod == models.PaymentMethodCstore {
 			midtransData["va_number"] = statusResp.PaymentCode
@@ -568,6 +594,7 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 	if statusResp.PermataVANumber != "" {
 		midtransData["va_number"] = statusResp.PermataVANumber
 		midtransData["bank_type"] = "permata"
+		fmt.Printf("🔍 Updated Permata VA Number: %s\n", statusResp.PermataVANumber)
 	}
 
 	if statusResp.ExpiryTime != "" {
@@ -584,6 +611,7 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 			expiryTime, err = time.Parse(format, statusResp.ExpiryTime)
 			if err == nil {
 				midtransData["expiry_time"] = expiryTime
+				fmt.Printf("🔍 Updated Expiry Time: %s\n", expiryTime.Format(time.RFC3339))
 				break
 			}
 		}
@@ -603,18 +631,215 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 			paidAt, err = time.Parse(format, statusResp.PaidAt)
 			if err == nil {
 				midtransData["paid_at"] = paidAt
+				fmt.Printf("🔍 Updated Paid At: %s\n", paidAt.Format(time.RFC3339))
 				break
 			}
 		}
+	} else if newStatus == models.PaymentStatusSuccess && payment.PaidAt == nil {
+		// If payment is successful but no paid_at from Midtrans, set it to current time
+		midtransData["paid_at"] = time.Now()
+		fmt.Printf("🔍 Set Paid At to current time for successful payment\n")
 	}
 
-	ph.paymentRepo.UpdateMidtransData(payment.ID, midtransData)
+	// Update Midtrans data in database
+	if err := ph.paymentRepo.UpdateMidtransData(payment.ID, midtransData); err != nil {
+		fmt.Printf("❌ Failed to update Midtrans data: %v\n", err)
+		// Don't return error here, just log it
+	}
 
 	// Invalidate cache
 	ph.cacheSvc.InvalidatePaymentCache(payment.ID.String(), payment.OrderID, payment.UserID.String())
+	fmt.Printf("🗑️ Invalidated cache for payment: %s\n", payment.ID.String())
 
 	// Publish events based on status change
 	if newStatus != oldStatus {
+		fmt.Printf("📢 Publishing status change event: %s -> %s\n", oldStatus, newStatus)
+		
+		ph.eventSvc.PublishPaymentStatusUpdated(
+			payment.ID.String(),
+			payment.OrderID,
+			payment.UserID.String(),
+			payment.ProductID,
+			string(oldStatus),
+			string(newStatus),
+			payment.Amount,
+			payment.TotalAmount,
+			string(payment.PaymentMethod),
+			payment.PaidAt,
+		)
+
+		if newStatus == models.PaymentStatusSuccess {
+			fmt.Printf("🎉 Payment successful! Publishing success event\n")
+			ph.eventSvc.PublishPaymentSuccess(
+				payment.ID.String(),
+				payment.OrderID,
+				payment.UserID.String(),
+				payment.ProductID,
+				payment.Amount,
+				payment.TotalAmount,
+				string(payment.PaymentMethod),
+				time.Now(),
+			)
+
+			// Publish stock reduction event
+			if payment.ProductID != nil {
+				ph.eventSvc.PublishStockReduction(
+					*payment.ProductID,
+					1, // Assuming quantity 1
+					payment.OrderID,
+					payment.UserID.String(),
+				)
+				fmt.Printf("📦 Published stock reduction event for product: %s\n", payment.ProductID.String())
+			}
+		} else if newStatus == models.PaymentStatusFailed || newStatus == models.PaymentStatusCancelled || newStatus == models.PaymentStatusExpired {
+			fmt.Printf("❌ Payment failed/cancelled/expired! Publishing failure event\n")
+			ph.eventSvc.PublishPaymentFailed(
+				payment.ID.String(),
+				payment.OrderID,
+				payment.UserID.String(),
+				payment.ProductID,
+				payment.Amount,
+				payment.TotalAmount,
+				string(payment.PaymentMethod),
+				string(newStatus),
+			)
+		}
+	} else {
+		fmt.Printf("ℹ️ No status change detected\n")
+	}
+
+	fmt.Printf("✅ Callback processed successfully for order: %s\n", req.OrderID)
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Callback processed successfully",
+	})
+}
+
+// GetMidtransConfig returns Midtrans configuration for frontend
+func (ph *PaymentHandler) GetMidtransConfig(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"client_key":  ph.midtransSvc.GetClientKey(),
+			"environment": ph.midtransSvc.GetEnvironment(),
+		},
+	})
+}
+
+// CheckPaymentStatus manually checks payment status from Midtrans
+func (ph *PaymentHandler) CheckPaymentStatus(c *gin.Context) {
+	paymentIDStr := c.Param("id")
+	paymentID, err := uuid.Parse(paymentIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   "Invalid payment ID",
+		})
+		return
+	}
+
+	// Get payment from database
+	payment, err := ph.paymentRepo.GetByID(paymentID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   "Payment not found",
+		})
+		return
+	}
+
+	// Get detailed status from Midtrans
+	statusResp, err := ph.midtransSvc.GetPaymentStatus(payment.OrderID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to get payment status from Midtrans",
+		})
+		return
+	}
+
+	// Map Midtrans status to our status
+	newStatus := ph.midtransSvc.MapMidtransStatusToPaymentStatus(statusResp.TransactionStatus)
+	oldStatus := payment.Status
+
+	fmt.Printf("🔍 Manual status check - Order: %s, Old: %s, New: %s (Midtrans: %s)\n", 
+		payment.OrderID, oldStatus, newStatus, statusResp.TransactionStatus)
+
+	// Update payment status if changed
+	if newStatus != oldStatus {
+		if err := ph.paymentRepo.UpdateStatus(payment.ID, newStatus); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to update payment status",
+			})
+			return
+		}
+
+		// Update Midtrans data
+		midtransData := map[string]interface{}{
+			"transaction_id":     statusResp.TransactionID,
+			"transaction_status": statusResp.TransactionStatus,
+			"fraud_status":       statusResp.FraudStatus,
+			"midtrans_response":  ph.marshalToJSON(statusResp),
+			"midtrans_action":    ph.marshalToJSON(statusResp.Actions),
+		}
+
+		// Add payment method specific data
+		if len(statusResp.VANumbers) > 0 {
+			midtransData["va_number"] = statusResp.VANumbers[0].VANumber
+			midtransData["bank_type"] = statusResp.VANumbers[0].Bank
+		}
+
+		if statusResp.PaymentCode != "" {
+			midtransData["payment_code"] = statusResp.PaymentCode
+			if payment.PaymentMethod == models.PaymentMethodCstore {
+				midtransData["va_number"] = statusResp.PaymentCode
+			}
+		}
+
+		if statusResp.PermataVANumber != "" {
+			midtransData["va_number"] = statusResp.PermataVANumber
+			midtransData["bank_type"] = "permata"
+		}
+
+		if statusResp.ExpiryTime != "" {
+			timeFormats := []string{
+				time.RFC3339,
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05",
+			}
+			
+			for _, format := range timeFormats {
+				if expiryTime, err := time.Parse(format, statusResp.ExpiryTime); err == nil {
+					midtransData["expiry_time"] = expiryTime
+					break
+				}
+			}
+		}
+
+		if statusResp.PaidAt != "" {
+			timeFormats := []string{
+				time.RFC3339,
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05",
+			}
+			
+			for _, format := range timeFormats {
+				if paidAt, err := time.Parse(format, statusResp.PaidAt); err == nil {
+					midtransData["paid_at"] = paidAt
+					break
+				}
+			}
+		} else if newStatus == models.PaymentStatusSuccess && payment.PaidAt == nil {
+			midtransData["paid_at"] = time.Now()
+		}
+
+		ph.paymentRepo.UpdateMidtransData(payment.ID, midtransData)
+
+		// Invalidate cache
+		ph.cacheSvc.InvalidatePaymentCache(payment.ID.String(), payment.OrderID, payment.UserID.String())
+
+		// Publish events based on status change
 		ph.eventSvc.PublishPaymentStatusUpdated(
 			payment.ID.String(),
 			payment.OrderID,
@@ -644,7 +869,7 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 			if payment.ProductID != nil {
 				ph.eventSvc.PublishStockReduction(
 					*payment.ProductID,
-					1, // Assuming quantity 1
+					1,
 					payment.OrderID,
 					payment.UserID.String(),
 				)
@@ -661,22 +886,39 @@ func (ph *PaymentHandler) MidtransCallback(c *gin.Context) {
 				string(newStatus),
 			)
 		}
+
+		fmt.Printf("✅ Status updated from %s to %s\n", oldStatus, newStatus)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Callback processed successfully",
-	})
-}
+	// Get updated payment data
+	updatedPayment, err := ph.paymentRepo.GetByID(paymentID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to get updated payment data",
+		})
+		return
+	}
 
-// GetMidtransConfig returns Midtrans configuration for frontend
-func (ph *PaymentHandler) GetMidtransConfig(c *gin.Context) {
+	paymentResponse := updatedPayment.ToResponse()
+	
+	// Parse Midtrans actions if available
+	if updatedPayment.MidtransAction != nil {
+		var actions []models.MidtransAction
+		if err := json.Unmarshal([]byte(*updatedPayment.MidtransAction), &actions); err == nil {
+			paymentResponse.Actions = actions
+		}
+	}
+
+	// Cache the response
+	ph.cacheSvc.SetPayment(payment.ID.String(), paymentResponse, 1*time.Hour)
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data": gin.H{
-			"client_key":  ph.midtransSvc.GetClientKey(),
-			"environment": ph.midtransSvc.GetEnvironment(),
-		},
+		"data":    paymentResponse,
+		"status_changed": newStatus != oldStatus,
+		"old_status": string(oldStatus),
+		"new_status": string(newStatus),
 	})
 }
 

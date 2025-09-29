@@ -31,7 +31,7 @@ func (pr *PaymentRepository) Create(payment *models.Payment) error {
 // GetByID retrieves a payment by ID
 func (pr *PaymentRepository) GetByID(id uuid.UUID) (*models.Payment, error) {
 	var payment models.Payment
-	if err := pr.db.Preload("User").Preload("Product").First(&payment, "id = ?", id).Error; err != nil {
+	if err := pr.db.First(&payment, "id = ?", id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("payment not found")
 		}
@@ -55,7 +55,7 @@ func (pr *PaymentRepository) GetByIDWithoutRelations(id uuid.UUID) (*models.Paym
 // GetByOrderID retrieves a payment by order ID
 func (pr *PaymentRepository) GetByOrderID(orderID string) (*models.Payment, error) {
 	var payment models.Payment
-	if err := pr.db.Preload("User").Preload("Product").First(&payment, "order_id = ?", orderID).Error; err != nil {
+	if err := pr.db.First(&payment, "order_id = ?", orderID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("payment not found")
 		}
@@ -78,8 +78,7 @@ func (pr *PaymentRepository) GetByUserID(userID uuid.UUID, page, limit int) ([]m
 	offset := (page - 1) * limit
 
 	// Get payments with pagination
-	if err := pr.db.Preload("User").Preload("Product").
-		Where("user_id = ?", userID).
+	if err := pr.db.Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(limit).
@@ -104,8 +103,7 @@ func (pr *PaymentRepository) GetByStatus(status models.PaymentStatus, page, limi
 	offset := (page - 1) * limit
 
 	// Get payments with pagination
-	if err := pr.db.Preload("User").Preload("Product").
-		Where("status = ?", status).
+	if err := pr.db.Where("status = ?", status).
 		Order("created_at DESC").
 		Offset(offset).
 		Limit(limit).
@@ -152,8 +150,7 @@ func (pr *PaymentRepository) GetAll(query models.PaymentQuery) ([]models.Payment
 	offset := (query.Page - 1) * query.Limit
 
 	// Get payments with pagination
-	if err := db.Preload("User").Preload("Product").
-		Order("created_at DESC").
+	if err := db.Order("created_at DESC").
 		Offset(offset).
 		Limit(query.Limit).
 		Find(&payments).Error; err != nil {

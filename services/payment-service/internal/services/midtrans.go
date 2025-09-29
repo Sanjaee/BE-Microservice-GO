@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"payment-service/internal/models"
@@ -420,12 +421,12 @@ func (ms *MidtransService) VerifySignature(orderID, statusCode, grossAmount, sig
 
 // MapMidtransStatusToPaymentStatus maps Midtrans status to our payment status
 func (ms *MidtransService) MapMidtransStatusToPaymentStatus(midtransStatus string) models.PaymentStatus {
-	switch midtransStatus {
+	switch strings.ToLower(midtransStatus) {
 	case "pending":
 		return models.PaymentStatusPending
 	case "settlement", "capture":
 		return models.PaymentStatusSuccess
-	case "deny":
+	case "deny", "failed":
 		return models.PaymentStatusFailed
 	case "cancel":
 		return models.PaymentStatusCancelled

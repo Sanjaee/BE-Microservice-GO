@@ -108,6 +108,7 @@ func main() {
 			protected.Use(middleware.AuthMiddleware(jwtSecret))
 			{
 				protected.POST("", proxyToPaymentService("POST", "/api/v1/payments"))
+				protected.GET("/:id/check-status", proxyToPaymentService("GET", "/api/v1/payments/:id/check-status"))
 				protected.GET("/:id", proxyToPaymentService("GET", "/api/v1/payments/:id"))
 				protected.GET("/order/:order_id", proxyToPaymentService("GET", "/api/v1/payments/order/:order_id"))
 				protected.GET("/user", proxyToPaymentService("GET", "/api/v1/payments/user"))
@@ -131,6 +132,7 @@ func main() {
 	log.Println("  GET  /api/v1/products/:id      - Get product by ID")
 	log.Println("  POST /api/v1/payments          - Create payment")
 	log.Println("  GET  /api/v1/payments/:id      - Get payment by ID")
+	log.Println("  GET  /api/v1/payments/:id/check-status - Check payment status from Midtrans")
 	log.Println("  GET  /api/v1/payments/order/:id - Get payment by order ID")
 	log.Println("  GET  /api/v1/payments/user     - Get user payments")
 	log.Println("  GET  /api/v1/payments/config   - Get Midtrans config")
