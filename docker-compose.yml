@@ -1,12 +1,12 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
     image: postgres:15-alpine
     container_name: postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123
       POSTGRES_DB: userdb
     ports:
       - "5432:5432"
@@ -28,7 +28,7 @@ services:
       RABBITMQ_DEFAULT_PASS: secret123
     ports:
       - "5672:5672"
-      - "15672:15672"  # UI Management
+      - "15672:15672" # UI Management
 
 volumes:
   postgres_data:
