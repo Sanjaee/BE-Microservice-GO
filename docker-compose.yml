@@ -30,5 +30,50 @@ services:
       - "5672:5672"
       - "15672:15672" # UI Management
 
+  # Go Services
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=123
+      - DB_NAME=userdb
+      - PORT=5001
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USERNAME=admin
+      - RABBITMQ_PASSWORD=secret123
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=your-jwt-secret-key-here
+    ports:
+      - "5001:5001"
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    environment:
+      - JWT_SECRET=your-secret-key-here
+      - USER_SERVICE_URL=http://user-service:5001
+      - PRODUCT_SERVICE_URL=http://localhost:5002
+      - PAYMENT_SERVICE_URL=http://localhost:5003
+      - PORT=5000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - user-service
+    restart: unless-stopped
+
 volumes:
   postgres_data:
